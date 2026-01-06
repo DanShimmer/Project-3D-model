@@ -52,7 +52,7 @@ export default function LoginModal({ onClose, onLoginSuccess }) {
           localStorage.setItem("pv_user", JSON.stringify(data.user));
           onLoginSuccess(data.user, data.token);
           onClose();
-          navigate("/generate");
+          // Stay on current page after login (don't auto-redirect)
         } else {
           setError(data.msg || "Invalid OTP");
         }
