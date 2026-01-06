@@ -1,0 +1,51 @@
+# =============================================================================
+# Polyva AI Service - Full Requirements
+# =============================================================================
+#
+# Requirements for GPU-based 3D generation
+#
+# Installation:
+# 1. Use Python 3.10 or 3.11 (NOT 3.12+)
+# 2. Create virtual environment: python -m venv venv
+# 3. Activate: venv\Scripts\activate (Windows) or source venv/bin/activate
+# 4. Install PyTorch with CUDA first:
+#    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# 5. Then install: pip install -r requirements_full.txt
+#
+# =============================================================================
+
+# Flask Web Framework
+flask==3.0.0
+flask-cors==4.0.0
+python-dotenv==1.0.0
+
+# Image Processing
+Pillow==10.2.0
+rembg==2.0.50          # Background removal
+opencv-python==4.9.0.80
+
+# 3D Processing
+trimesh==4.1.0         # Mesh processing
+pyglet<2               # Required by trimesh for mesh viewing
+networkx               # Required by trimesh
+
+# Stable Diffusion (Text-to-Image)
+diffusers==0.26.0      # Hugging Face Diffusers
+transformers==4.38.0   # Hugging Face Transformers
+accelerate==0.27.0     # Accelerated training/inference
+safetensors==0.4.2     # Safe tensor format
+
+# TripoSR (Image-to-3D) - required in TripoSR folder
+huggingface-hub==0.20.3
+omegaconf==2.3.0       # Config management
+einops==0.7.0          # Tensor operations
+tqdm                   # Progress bars
+
+# Optional: Memory efficient attention
+xformers>=0.0.23       # For faster generation (NVIDIA GPUs only)
+
+# Optional: Better image export
+imageio==2.34.0
+
+# NumPy (specific version for compatibility)
+numpy<2.0.0

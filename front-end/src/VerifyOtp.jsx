@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import AppShell from "./Components/AppShell";
+import { useTheme } from "./contexts/ThemeContext";
 
 export default function VerifyOtp() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { theme, currentTheme } = useTheme();
 
   const [email, setEmail] = useState(location?.state?.email || "");
   const [otp, setOtp] = useState("");
@@ -37,16 +39,16 @@ export default function VerifyOtp() {
 
   return (
     <AppShell>
-      <div className="max-w-md mx-auto bg-gray-900/50 rounded-xl p-8 border border-gray-800/30">
+      <div className={`max-w-md mx-auto ${currentTheme.cardBg} rounded-xl p-8 border ${currentTheme.border}`}>
         <header className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-white mb-2">Verify your email</h2>
-          <p className="text-gray-400">Enter the 6-digit code we sent to your email</p>
+          <h2 className={`text-2xl font-bold ${currentTheme.text} mb-2`}>Verify your email</h2>
+          <p className={currentTheme.textSecondary}>Enter the 6-digit code we sent to your email</p>
         </header>
 
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="email">
+              <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-1`} htmlFor="email">
                 Email
               </label>
               <input
@@ -54,13 +56,13 @@ export default function VerifyOtp() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                className={`w-full px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} border ${currentTheme.border} ${currentTheme.text} focus:border-current`}
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="otp">
+              <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-1`} htmlFor="otp">
                 Verification Code
               </label>
               <input
@@ -71,7 +73,7 @@ export default function VerifyOtp() {
                 maxLength={6}
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ""))}
-                className="w-full px-4 py-2 tracking-widest text-center text-lg rounded-lg bg-gray-800/50 border border-gray-700 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                className={`w-full px-4 py-2 tracking-widest text-center text-lg rounded-lg ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} border ${currentTheme.border} ${currentTheme.text} focus:border-current`}
                 placeholder="123456"
                 required
               />
@@ -83,14 +85,14 @@ export default function VerifyOtp() {
             <div>
               <button
                 type="submit"
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-400 text-white font-medium hover:opacity-90"
+                className={`w-full py-3 px-4 rounded-xl bg-gradient-to-r ${currentTheme.accentGradient} text-white font-medium hover:opacity-90`}
               >
                 Verify
               </button>
             </div>
 
             <div className="flex justify-center text-sm">
-              <Link to="/login" className="text-gray-400 hover:text-white">
+              <Link to="/login" className={`${currentTheme.textSecondary} hover:opacity-80`}>
                 Back to sign in
               </Link>
             </div>

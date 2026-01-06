@@ -102,20 +102,26 @@ export const loginRequestOTP = async (req: Request, res: Response) => {
     const user = await User.findOne({ email });
 
     if (!user) return res.status(404).json({ msg: "User not found" });
+    
+    // Prevent admin accounts from logging in via user login
+    if (user.isAdmin) {
+      return res.status(403).json({ msg: "Admin accounts must use the Admin Login" });
+    }
+    
     if (!user.isVerified) return res.status(400).json({ msg: "Please verify your email first" });
     if (user.isBlocked) return res.status(403).json({ msg: "Your account has been blocked. Contact support." });
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(400).json({ msg: "Invalid password" });
 
-    // Generate and save OTP
+    // Generate and save OTP (valid for 10 minutes)
     const otp = generateOTP();
     user.otp = otp;
-    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     await user.save();
 
     // Send OTP email
-    await sendEmail(email, "Login Verification Code", `Your login verification code is: ${otp}\n\nThis code expires in 5 minutes.`);
+    await sendEmail(email, "Login Verification Code", `Your login verification code is: ${otp}\n\nThis code expires in 10 minutes.`);
 
     res.json({ msg: "OTP sent to your email" });
   } catch (err) {

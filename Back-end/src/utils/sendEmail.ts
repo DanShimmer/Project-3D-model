@@ -7,9 +7,19 @@ export const sendEmail = async (to: string, subject: string, text: string) => {
   const portStr = process.env.EMAIL_PORT;
   const from = process.env.EMAIL_FROM || (user ? `"Polyva 3D" <${user}>` : undefined);
 
-  if (!user || !pass) {
-    // Dev fallback: don't fail if email credentials are missing
-    console.log("[DEV EMAIL] To:", to, "Subject:", subject, "Text:", text);
+  // Check if email credentials are placeholder values (not configured)
+  const isPlaceholder = !user || !pass || user.includes("your.email") || pass.includes("your_");
+
+  if (!user || !pass || isPlaceholder) {
+    // Dev fallback: don't fail if email credentials are missing or placeholder
+    console.log("\n" + "=".repeat(60));
+    console.log("📧 [DEV EMAIL - Email not sent - credentials not configured]");
+    console.log("=".repeat(60));
+    console.log("To:", to);
+    console.log("Subject:", subject);
+    console.log("-".repeat(60));
+    console.log("Content:", text);
+    console.log("=".repeat(60) + "\n");
     return;
   }
 
@@ -33,4 +43,6 @@ export const sendEmail = async (to: string, subject: string, text: string) => {
     subject,
     text,
   });
+  
+  console.log(`✅ Email sent successfully to ${to}`);
 };

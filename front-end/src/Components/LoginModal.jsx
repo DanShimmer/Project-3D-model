@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { LogoIcon } from "./Logo";
 
 export default function LoginModal({ onClose, onLoginSuccess }) {
   const navigate = useNavigate();
@@ -183,8 +184,8 @@ export default function LoginModal({ onClose, onLoginSuccess }) {
 
         {/* Header */}
         <div className="text-center mb-6">
-          <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-400 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-lg">PV</span>
+          <div className="flex items-center justify-center mb-4">
+            <LogoIcon size={48} />
           </div>
           <h2 className="text-2xl font-bold text-white">
             {mode === "login" && "Welcome Back"}

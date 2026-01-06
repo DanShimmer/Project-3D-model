@@ -2,12 +2,11 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import Landpage from "./Landpage";
 import Signup from "./Signup";
 import Login from "./Login";
 import Showcase from "./Showcase";
-import Textto3D from "./Textto3D";
-import Imageto3D from "./Imageto3D";
 import GeneratePage from "./GeneratePage";
 import VerifyOtp from "./VerifyOtp";
 import ForgotPassword from "./Components/ForgotPassword";
@@ -46,11 +45,11 @@ const router = createBrowserRouter([
   },
   {
     path: "/text-to-3d",
-    element: <Textto3D />
+    element: <GeneratePage />
   },
   {
     path: "/image-to-3d",
-    element: <Imageto3D />
+    element: <GeneratePage />
   },
   {
     path: "/generate",
@@ -87,9 +86,11 @@ if (rootEl) {
   const root = createRoot(rootEl);
   root.render(
     <React.StrictMode>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </ThemeProvider>
     </React.StrictMode>
   );
 }
