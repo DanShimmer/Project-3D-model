@@ -26,43 +26,37 @@ import {
   Moon
 } from "lucide-react";
 
-// Use cases data with real 3D render images
+// Use cases data with local 3D images
 const USE_CASES = [
   { 
     title: "Film Production", 
     gradient: "from-slate-500/90 to-slate-600/90",
-    // Film reel 3D
-    image: "https://img.freepik.com/free-psd/3d-rendering-film-element_23-2149738229.jpg"
+    image: "/images/use-cases/film-production.jpg"
   },
   { 
     title: "Product Design", 
     gradient: "from-blue-500/90 to-indigo-600/90",
-    // Drill tool 3D
-    image: "https://img.freepik.com/free-psd/3d-rendering-graphic-design-element_23-2149538257.jpg"
+    image: "/images/use-cases/product-design.jpg"
   },
   { 
     title: "Education", 
     gradient: "from-amber-400/90 to-yellow-500/90",
-    // Graduation cap 3D
-    image: "https://img.freepik.com/free-psd/3d-rendering-back-school_23-2149538245.jpg"
+    image: "/images/use-cases/education.jpg"
   },
   { 
     title: "Game Development", 
     gradient: "from-cyan-500/90 to-teal-600/90",
-    // Game controller/character 3D
-    image: "https://img.freepik.com/free-psd/3d-rendering-cartoon-character_23-2149436190.jpg"
+    image: "/images/use-cases/game-dev.jpg"
   },
   { 
     title: "3D Printing", 
     gradient: "from-lime-500/90 to-green-600/90",
-    // 3D printer/object
-    image: "https://img.freepik.com/free-psd/3d-illustration-lightbulb_23-2149436175.jpg"
+    image: "/images/use-cases/3d-printing.jpg"
   },
   { 
     title: "VR/AR", 
     gradient: "from-purple-500/90 to-pink-600/90",
-    // VR headset 3D
-    image: "https://img.freepik.com/free-psd/3d-rendering-vr-glasses_23-2149436182.jpg"
+    image: "/images/use-cases/vr-ar.jpg"
   }
 ];
 
