@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { LogoIcon } from "./Logo";
+import { useTheme } from "../contexts/ThemeContext";
+import { Sun, Moon } from "lucide-react";
 
 export default function ForgotPasswordPage() {
   const [step, setStep] = useState(1); // 1: enter email, 2: enter OTP, 3: new password
@@ -13,6 +16,7 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const navigate = useNavigate();
+  const { theme, currentTheme, toggleTheme } = useTheme();
 
   useEffect(() => {
     let timer;
@@ -54,19 +58,23 @@ export default function ForgotPasswordPage() {
       alpha: Math.random() * 0.6 + 0.25,
     }));
 
+    // Theme-aware colors - Always use dark background
+    const bgColor = "#04060A";
+    const particleColor = theme === 'dark' ? "120,255,100" : "6,182,212";
+
     let rafId = 0;
 
     function draw() {
-      ctx.fillStyle = "#04060A";
+      ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, w, h);
 
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(120,255,100,${p.alpha})`;
+        ctx.fillStyle = `rgba(${particleColor},${p.alpha})`;
         ctx.shadowBlur = 18;
-        ctx.shadowColor = "rgba(120,255,100,0.95)";
+        ctx.shadowColor = `rgba(${particleColor},0.95)`;
         ctx.fill();
         ctx.shadowBlur = 0;
 
@@ -94,7 +102,7 @@ export default function ForgotPasswordPage() {
       window.removeEventListener("resize", handleResize);
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [theme]);
 
   const handleSendOTP = async (e) => {
     e.preventDefault();
@@ -223,19 +231,25 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-transparent text-white relative">
+    <div className={`min-h-screen flex flex-col bg-transparent ${currentTheme.text} relative`}>
       <canvas id="bgCanvas" className="fixed inset-0 w-full h-full -z-10" />
 
       {/* Header */}
-      <header className="backdrop-blur-sm fixed top-0 w-full z-40 bg-white/10 border-b border-gray-800/20">
+      <header className={`backdrop-blur-sm fixed top-0 w-full z-40 ${currentTheme.navBg} border-b ${currentTheme.border}`}>
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="flex items-center justify-between h-20">
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-800/30 rounded-lg flex items-center justify-center">
-                <span className="text-sm font-semibold text-gray-300">PV</span>
-              </div>
-              <span className="font-semibold text-xl tracking-wide">Polyva</span>
+              <LogoIcon size={36} />
+              <span className={`font-semibold text-xl tracking-wide ${currentTheme.text}`}>Polyva</span>
             </Link>
+            <motion.button
+              onClick={toggleTheme}
+              className={`p-2 rounded-full ${currentTheme.buttonSecondary} transition-colors`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              {theme === 'dark' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+            </motion.button>
           </div>
         </div>
       </header>
@@ -248,7 +262,7 @@ export default function ForgotPasswordPage() {
           transition={{ duration: 0.5 }}
           className="w-full max-w-md"
         >
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-gray-800/30 shadow-2xl">
+          <div className={`${currentTheme.cardBg} backdrop-blur-sm rounded-2xl p-8 border ${currentTheme.border} shadow-2xl`}>
             {/* Progress Steps */}
             <div className="flex items-center justify-center gap-2 mb-8">
               {[1, 2, 3].map((s) => (
@@ -256,8 +270,8 @@ export default function ForgotPasswordPage() {
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
                       step >= s
-                        ? "bg-gradient-to-r from-green-500 to-emerald-400 text-white"
-                        : "bg-gray-800/50 text-gray-400"
+                        ? `bg-gradient-to-r ${currentTheme.accentGradient} text-white`
+                        : `${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-200'} ${currentTheme.textSecondary}`
                     }`}
                   >
                     {s}
@@ -265,7 +279,7 @@ export default function ForgotPasswordPage() {
                   {s < 3 && (
                     <div
                       className={`w-12 h-0.5 ${
-                        step > s ? "bg-green-500" : "bg-gray-700"
+                        step > s ? (theme === 'dark' ? 'bg-lime-500' : 'bg-cyan-500') : (theme === 'dark' ? 'bg-gray-700' : 'bg-gray-300')
                       }`}
                     />
                   )}
@@ -274,12 +288,12 @@ export default function ForgotPasswordPage() {
             </div>
 
             <header className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-white mb-2">
+              <h2 className={`text-2xl font-bold ${currentTheme.text} mb-2`}>
                 {step === 1 && "Forgot Password"}
                 {step === 2 && "Verify OTP"}
                 {step === 3 && "Reset Password"}
               </h2>
-              <p className="text-gray-400">
+              <p className={currentTheme.textSecondary}>
                 {step === 1 && "Enter your email to receive a reset code"}
                 {step === 2 && "Enter the OTP sent to your email"}
                 {step === 3 && "Create your new password"}
@@ -290,14 +304,14 @@ export default function ForgotPasswordPage() {
             {step === 1 && (
               <form onSubmit={handleSendOTP} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-2`}>
                     Email Address
                   </label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                    className={`w-full px-4 py-3 rounded-xl ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} border ${currentTheme.border} ${currentTheme.text} placeholder-gray-500 focus:border-current transition-colors`}
                     placeholder="you@example.com"
                     required
                   />
@@ -318,7 +332,7 @@ export default function ForgotPasswordPage() {
                   whileTap={{ scale: 0.98 }}
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-400 text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all"
+                  className={`w-full py-3 px-4 rounded-xl bg-gradient-to-r ${currentTheme.accentGradient} text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all`}
                 >
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">
@@ -334,7 +348,7 @@ export default function ForgotPasswordPage() {
                 </motion.button>
 
                 <div className="text-center">
-                  <Link to="/login" className="text-gray-400 hover:text-white text-sm transition-colors">
+                  <Link to="/login" className={`${currentTheme.textSecondary} hover:opacity-80 text-sm transition-colors`}>
                     ← Back to Login
                   </Link>
                 </div>
@@ -345,14 +359,14 @@ export default function ForgotPasswordPage() {
             {step === 2 && (
               <form onSubmit={handleVerifyOTP} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-2`}>
                     Enter OTP Code
                   </label>
                   <input
                     type="text"
                     value={otp}
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    className="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-white text-center text-2xl tracking-[0.5em] placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                    className={`w-full px-4 py-3 rounded-xl ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} border ${currentTheme.border} ${currentTheme.text} text-center text-2xl tracking-[0.5em] placeholder-gray-500 focus:border-current transition-colors`}
                     placeholder="000000"
                     maxLength={6}
                     required
@@ -360,9 +374,9 @@ export default function ForgotPasswordPage() {
                 </div>
 
                 {countdown > 0 && (
-                  <p className="text-center text-gray-400 text-sm">
+                  <p className={`text-center ${currentTheme.textSecondary} text-sm`}>
                     OTP expires in{" "}
-                    <span className="text-green-400 font-medium">{formatTime(countdown)}</span>
+                    <span className={`${theme === 'dark' ? 'text-lime-400' : 'text-cyan-600'} font-medium`}>{formatTime(countdown)}</span>
                   </p>
                 )}
 
@@ -391,7 +405,7 @@ export default function ForgotPasswordPage() {
                   whileTap={{ scale: 0.98 }}
                   type="submit"
                   disabled={loading || otp.length !== 6}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-400 text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all"
+                  className={`w-full py-3 px-4 rounded-xl bg-gradient-to-r ${currentTheme.accentGradient} text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all`}
                 >
                   {loading ? "Verifying..." : "Verify OTP"}
                 </motion.button>
@@ -400,7 +414,7 @@ export default function ForgotPasswordPage() {
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="text-gray-400 hover:text-white transition-colors"
+                    className={`${currentTheme.textSecondary} hover:opacity-80 transition-colors`}
                   >
                     ← Change Email
                   </button>
@@ -410,8 +424,8 @@ export default function ForgotPasswordPage() {
                     disabled={countdown > 0 || loading}
                     className={`transition-colors ${
                       countdown > 0
-                        ? "text-gray-600 cursor-not-allowed"
-                        : "text-green-400 hover:text-green-300"
+                        ? `${currentTheme.textMuted} cursor-not-allowed`
+                        : `${theme === 'dark' ? 'text-lime-400 hover:text-lime-300' : 'text-cyan-600 hover:text-cyan-500'}`
                     }`}
                   >
                     Resend OTP
@@ -424,28 +438,28 @@ export default function ForgotPasswordPage() {
             {step === 3 && (
               <form onSubmit={handleResetPassword} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-2`}>
                     New Password
                   </label>
                   <input
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                    className={`w-full px-4 py-3 rounded-xl ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} border ${currentTheme.border} ${currentTheme.text} placeholder-gray-500 focus:border-current transition-colors`}
                     placeholder="••••••••"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-2`}>
                     Confirm New Password
                   </label>
                   <input
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                    className={`w-full px-4 py-3 rounded-xl ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} border ${currentTheme.border} ${currentTheme.text} placeholder-gray-500 focus:border-current transition-colors`}
                     placeholder="••••••••"
                     required
                   />
@@ -476,7 +490,7 @@ export default function ForgotPasswordPage() {
                   whileTap={{ scale: 0.98 }}
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-400 text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all"
+                  className={`w-full py-3 px-4 rounded-xl bg-gradient-to-r ${currentTheme.accentGradient} text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all`}
                 >
                   {loading ? "Resetting..." : "Reset Password"}
                 </motion.button>
@@ -487,9 +501,9 @@ export default function ForgotPasswordPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800/20 bg-transparent">
+      <footer className={`border-t ${currentTheme.border} bg-transparent`}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-center">
-          <div className="text-sm text-gray-400">
+          <div className={`text-sm ${currentTheme.textSecondary}`}>
             © {new Date().getFullYear()} Polyva — All rights reserved.
           </div>
         </div>

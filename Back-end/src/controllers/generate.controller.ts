@@ -45,7 +45,12 @@ const jobs: Map<string, GenerateJob> = new Map();
  */
 export const textTo3D = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = (req as any).user?._id;
+    
+    if (!userId) {
+      return res.status(401).json({ ok: false, msg: "Authentication required" });
+    }
+    
     const { prompt, mode = "fast" } = req.body;
 
     // Validation
@@ -160,7 +165,11 @@ export const textTo3D = async (req: Request, res: Response) => {
  */
 export const imageTo3D = async (req: MulterRequest, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = (req as any).user?._id;
+    
+    if (!userId) {
+      return res.status(401).json({ ok: false, msg: "Authentication required" });
+    }
 
     // Check for file
     if (!req.file) {

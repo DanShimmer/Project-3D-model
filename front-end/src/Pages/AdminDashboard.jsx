@@ -211,11 +211,16 @@ export default function AdminDashboard() {
     }
   };
 
-  // Handle logout
+  // Handle logout - fully clears auth state and redirects to login
   const handleLogout = () => {
+    // Clear all authentication data
     localStorage.removeItem("pv_token");
     localStorage.removeItem("pv_user");
-    navigate("/");
+    localStorage.removeItem("pv_admin_token");
+    // Redirect to login page
+    navigate("/login");
+    // Force page reload to clear any cached state
+    window.location.reload();
   };
 
   // Canvas background
@@ -286,33 +291,33 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen text-white relative">
-      <canvas id="adminBgCanvas" className="fixed inset-0 w-full h-full -z-10" />
+    <div className="min-h-screen text-white relative bg-gradient-to-br from-gray-900 via-purple-950 to-gray-900">
+      <canvas id="adminBgCanvas" className="fixed inset-0 w-full h-full -z-10 opacity-30" />
 
       {/* Header */}
-      <header className="backdrop-blur-sm fixed top-0 w-full z-40 bg-purple-900/20 border-b border-purple-500/20">
+      <header className="backdrop-blur-md fixed top-0 w-full z-40 bg-gray-900/80 border-b border-purple-500/30">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
-              <Link to="/" className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center shadow-lg shadow-purple-500/20">
                   <LucideShield className="w-5 h-5 text-white" />
                 </div>
-                <span className="font-semibold text-xl">Admin Panel</span>
-              </Link>
+                <span className="font-bold text-xl text-white">Admin Panel</span>
+              </div>
             </div>
 
             <div className="flex items-center gap-4">
               <Link
                 to="/"
-                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-all"
               >
                 <LucideHome className="w-4 h-4" />
                 Home
               </Link>
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:text-red-300 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 rounded-lg transition-all"
               >
                 <LucideLogOut className="w-4 h-4" />
                 Logout
@@ -329,32 +334,32 @@ export default function AdminDashboard() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-gray-700/30"
+            className="bg-gray-800/60 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Total Users</p>
+                <p className="text-gray-300 text-sm font-medium">Total Users</p>
                 <p className="text-3xl font-bold text-white mt-1">{stats?.totalUsers || 0}</p>
               </div>
-              <div className="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-blue-500/30 rounded-lg flex items-center justify-center">
                 <LucideUsers className="w-6 h-6 text-blue-400" />
               </div>
             </div>
-            <p className="text-xs text-green-400 mt-2">+{stats?.newUsersThisWeek || 0} this week</p>
+            <p className="text-xs text-green-400 mt-2 font-medium">+{stats?.newUsersThisWeek || 0} this week</p>
           </motion.div>
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-gray-700/30"
+            className="bg-gray-800/60 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Verified Users</p>
+                <p className="text-gray-300 text-sm font-medium">Verified Users</p>
                 <p className="text-3xl font-bold text-white mt-1">{stats?.verifiedUsers || 0}</p>
               </div>
-              <div className="w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-green-500/30 rounded-lg flex items-center justify-center">
                 <LucideCheck className="w-6 h-6 text-green-400" />
               </div>
             </div>
@@ -364,14 +369,14 @@ export default function AdminDashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-gray-700/30"
+            className="bg-gray-800/60 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Blocked Users</p>
+                <p className="text-gray-300 text-sm font-medium">Blocked Users</p>
                 <p className="text-3xl font-bold text-white mt-1">{stats?.blockedUsers || 0}</p>
               </div>
-              <div className="w-12 h-12 bg-red-500/20 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-red-500/30 rounded-lg flex items-center justify-center">
                 <LucideBan className="w-6 h-6 text-red-400" />
               </div>
             </div>
@@ -381,18 +386,18 @@ export default function AdminDashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-gray-700/30"
+            className="bg-gray-800/60 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50 shadow-lg"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Total Models</p>
+                <p className="text-gray-300 text-sm font-medium">Total Models</p>
                 <p className="text-3xl font-bold text-white mt-1">{stats?.totalModels || 0}</p>
               </div>
-              <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-purple-500/30 rounded-lg flex items-center justify-center">
                 <LucideBox className="w-6 h-6 text-purple-400" />
               </div>
             </div>
-            <p className="text-xs text-green-400 mt-2">+{stats?.newModelsThisWeek || 0} this week</p>
+            <p className="text-xs text-green-400 mt-2 font-medium">+{stats?.newModelsThisWeek || 0} this week</p>
           </motion.div>
         </div>
 
@@ -401,12 +406,12 @@ export default function AdminDashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/30 overflow-hidden"
+          className="bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-700/50 shadow-lg overflow-hidden"
         >
           {/* Table Header */}
-          <div className="p-6 border-b border-gray-700/30">
+          <div className="p-6 border-b border-gray-700/50 bg-gray-800/40">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <h2 className="text-xl font-semibold text-white">User Management</h2>
+              <h2 className="text-xl font-bold text-white">User Management</h2>
               
               <div className="flex flex-col sm:flex-row gap-3">
                 {/* Search */}
@@ -453,16 +458,16 @@ export default function AdminDashboard() {
           {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-800/30">
+              <thead className="bg-gray-900/60">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">User</th>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Models</th>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Joined</th>
-                  <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">User</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Models</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Joined</th>
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-300 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700/30">
+              <tbody className="divide-y divide-gray-700/50">
                 {loading ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center text-gray-400">
@@ -483,15 +488,15 @@ export default function AdminDashboard() {
                   </tr>
                 ) : (
                   users.map((u) => (
-                    <tr key={u._id} className="hover:bg-white/5 transition-colors">
+                    <tr key={u._id} className="hover:bg-gray-700/30 transition-colors">
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-medium">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 flex-shrink-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold shadow-lg">
                             {(u.name || u.email)[0].toUpperCase()}
                           </div>
-                          <div>
-                            <p className="text-white font-medium">{u.name || "No name"}</p>
-                            <p className="text-gray-400 text-sm">{u.email}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-white font-semibold truncate">{u.name || "No name"}</p>
+                            <p className="text-gray-400 text-sm truncate">{u.email}</p>
                           </div>
                         </div>
                       </td>
@@ -518,7 +523,7 @@ export default function AdminDashboard() {
                           {u.modelCount} models
                         </button>
                       </td>
-                      <td className="px-6 py-4 text-gray-400 text-sm">
+                      <td className="px-6 py-4 text-gray-300 text-sm font-medium">
                         {new Date(u.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">
@@ -569,8 +574,8 @@ export default function AdminDashboard() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-gray-700/30 flex items-center justify-between">
-              <p className="text-sm text-gray-400">
+            <div className="px-6 py-4 border-t border-gray-700/50 bg-gray-800/40 flex items-center justify-between">
+              <p className="text-sm text-gray-300 font-medium">
                 Page {currentPage} of {totalPages}
               </p>
               <div className="flex items-center gap-2">

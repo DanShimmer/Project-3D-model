@@ -18,11 +18,16 @@ import {
   LucideExternalLink,
   LucideCheck,
   LucideFolder,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { LogoIcon } from "../Components/Logo";
+import { useTheme } from "../contexts/ThemeContext";
 
 const API_URL = "http://localhost:5000/api";
 
 export default function MyStorage() {
+  const { theme, currentTheme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [models, setModels] = useState([]);
@@ -170,13 +175,14 @@ export default function MyStorage() {
     }
   };
 
-  // Handle regenerate
+  // Handle regenerate - redirect to new generate page with model data
   const handleRegenerate = (model) => {
-    if (model.type === "text-to-3d") {
-      navigate(`/text-to-3d?prompt=${encodeURIComponent(model.prompt || "")}&modelId=${model._id}`);
-    } else {
-      navigate(`/image-to-3d?modelId=${model._id}`);
-    }
+    navigate("/generate", { 
+      state: { 
+        editModel: model,
+        mode: model.type === "text-to-3d" ? "text-to-3d" : "image-to-3d"
+      } 
+    });
   };
 
   // Copy to clipboard
@@ -225,15 +231,17 @@ export default function MyStorage() {
 
     let rafId;
     function draw() {
+      // Always use dark background for both themes
       ctx.fillStyle = "#04060A";
       ctx.fillRect(0, 0, w, h);
 
       for (const p of particles) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(120,255,100,${p.alpha})`;
+        const particleColor = theme === 'dark' ? "rgba(120,255,100," : "rgba(6,182,212,";
+        ctx.fillStyle = `${particleColor}${p.alpha})`;
         ctx.shadowBlur = 15;
-        ctx.shadowColor = "rgba(120,255,100,0.9)";
+        ctx.shadowColor = theme === 'dark' ? "rgba(120,255,100,0.9)" : "rgba(6,182,212,0.9)";
         ctx.fill();
         ctx.shadowBlur = 0;
 
@@ -253,50 +261,51 @@ export default function MyStorage() {
       window.removeEventListener("resize", resize);
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [theme]);
 
   if (!user) {
     return null;
   }
 
   return (
-    <div className="min-h-screen text-white relative">
+    <div className={`min-h-screen ${currentTheme.text} relative transition-colors duration-500`}>
       <canvas id="storageBgCanvas" className="fixed inset-0 w-full h-full -z-10" />
 
       {/* Header */}
-      <header className="backdrop-blur-sm fixed top-0 w-full z-40 bg-white/10 border-b border-gray-800/20">
+      <header className={`backdrop-blur-sm fixed top-0 w-full z-40 ${currentTheme.navBg} border-b ${currentTheme.border} transition-colors duration-500`}>
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
               <Link to="/" className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gray-800/30 rounded-lg flex items-center justify-center">
-                  <span className="text-sm font-semibold text-gray-300">PV</span>
-                </div>
+                <LogoIcon size={36} />
                 <span className="font-semibold text-xl">Polyva</span>
               </Link>
-              <span className="text-gray-500">/</span>
+              <span className={currentTheme.textMuted}>/</span>
               <div className="flex items-center gap-2">
-                <LucideFolder className="w-5 h-5 text-green-400" />
+                <LucideFolder className={`w-5 h-5 ${currentTheme.accentColor}`} />
                 <span className="font-medium">My Storage</span>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <Link
-                to="/text-to-3d"
-                className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+              {/* Theme Toggle */}
+              <motion.button
+                onClick={toggleTheme}
+                className={`p-2 rounded-full ${currentTheme.buttonSecondary} transition-colors`}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
-                Text to 3D
-              </Link>
+                {theme === 'dark' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+              </motion.button>
               <Link
-                to="/image-to-3d"
-                className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+                to="/generate"
+                className={`px-4 py-2 text-sm ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}
               >
-                Image to 3D
+                Generate
               </Link>
               <Link
                 to="/"
-                className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-400 text-white text-sm rounded-lg hover:opacity-90"
+                className={`px-4 py-2 bg-gradient-to-r ${currentTheme.accentGradient} text-white text-sm rounded-lg hover:opacity-90`}
               >
                 Home
               </Link>
@@ -313,8 +322,8 @@ export default function MyStorage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <h1 className="text-3xl font-bold text-white mb-2">My Storage</h1>
-          <p className="text-gray-400">Manage your generated 3D models</p>
+          <h1 className={`text-3xl font-bold ${currentTheme.text} mb-2`}>My Storage</h1>
+          <p className={currentTheme.textSecondary}>Manage your generated 3D models</p>
         </motion.div>
 
         {/* Controls */}
@@ -327,26 +336,27 @@ export default function MyStorage() {
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Search */}
             <div className="relative">
-              <LucideSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <LucideSearch className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${currentTheme.textSecondary}`} />
               <input
                 type="text"
                 placeholder="Search models..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 bg-gray-800/50 border border-gray-700 rounded-xl text-white text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500 w-full sm:w-64"
+                className={`pl-10 pr-4 py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} text-sm focus:border-current focus:ring-1 w-full sm:w-64`}
+                style={{ borderColor: theme === 'dark' ? 'rgb(55, 65, 81)' : 'rgb(209, 213, 219)' }}
               />
             </div>
 
             {/* Type Filter */}
             <div className="relative">
-              <LucideFilter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <LucideFilter className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${currentTheme.textSecondary}`} />
               <select
                 value={typeFilter}
                 onChange={(e) => {
                   setTypeFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="pl-10 pr-8 py-2 bg-gray-800/50 border border-gray-700 rounded-xl text-white text-sm focus:border-green-500 appearance-none cursor-pointer"
+                className={`pl-10 pr-8 py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} text-sm appearance-none cursor-pointer`}
               >
                 <option value="all">All Types</option>
                 <option value="text-to-3d">Text to 3D</option>
@@ -356,11 +366,11 @@ export default function MyStorage() {
           </div>
 
           {/* View Mode */}
-          <div className="flex items-center gap-2 bg-gray-800/50 rounded-xl p-1">
+          <div className={`flex items-center gap-2 ${currentTheme.cardBg} rounded-xl p-1`}>
             <button
               onClick={() => setViewMode("grid")}
               className={`p-2 rounded-lg transition-colors ${
-                viewMode === "grid" ? "bg-green-500 text-white" : "text-gray-400 hover:text-white"
+                viewMode === "grid" ? `bg-gradient-to-r ${currentTheme.accentGradient} text-white` : `${currentTheme.textSecondary} hover:${currentTheme.text}`
               }`}
             >
               <LucideGrid className="w-4 h-4" />
@@ -368,7 +378,7 @@ export default function MyStorage() {
             <button
               onClick={() => setViewMode("list")}
               className={`p-2 rounded-lg transition-colors ${
-                viewMode === "list" ? "bg-green-500 text-white" : "text-gray-400 hover:text-white"
+                viewMode === "list" ? `bg-gradient-to-r ${currentTheme.accentGradient} text-white` : `${currentTheme.textSecondary} hover:${currentTheme.text}`
               }`}
             >
               <LucideList className="w-4 h-4" />
@@ -379,7 +389,7 @@ export default function MyStorage() {
         {/* Models Grid/List */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="flex items-center gap-3 text-gray-400">
+            <div className={`flex items-center gap-3 ${currentTheme.textSecondary}`}>
               <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -393,25 +403,18 @@ export default function MyStorage() {
             animate={{ opacity: 1 }}
             className="text-center py-20"
           >
-            <div className="w-20 h-20 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <LucideBox className="w-10 h-10 text-gray-500" />
+            <div className={`w-20 h-20 ${currentTheme.cardBg} rounded-full flex items-center justify-center mx-auto mb-4`}>
+              <LucideBox className={`w-10 h-10 ${currentTheme.textMuted}`} />
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">No models yet</h3>
-            <p className="text-gray-400 mb-6">Start creating amazing 3D models!</p>
+            <h3 className={`text-xl font-semibold ${currentTheme.text} mb-2`}>No models yet</h3>
+            <p className={`${currentTheme.textSecondary} mb-6`}>Start creating amazing 3D models!</p>
             <div className="flex items-center justify-center gap-4">
               <Link
-                to="/text-to-3d"
-                className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-400 text-white rounded-xl hover:opacity-90 transition-all flex items-center gap-2"
+                to="/generate"
+                className={`px-6 py-3 bg-gradient-to-r ${currentTheme.accentGradient} text-white rounded-xl hover:opacity-90 transition-all flex items-center gap-2`}
               >
                 <LucideType className="w-4 h-4" />
-                Text to 3D
-              </Link>
-              <Link
-                to="/image-to-3d"
-                className="px-6 py-3 bg-gray-800/50 border border-gray-700 text-white rounded-xl hover:bg-gray-800 transition-all flex items-center gap-2"
-              >
-                <LucideImage className="w-4 h-4" />
-                Image to 3D
+                Generate 3D
               </Link>
             </div>
           </motion.div>
@@ -428,10 +431,10 @@ export default function MyStorage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/30 overflow-hidden hover:border-green-500/50 transition-colors group"
+                className={`${currentTheme.cardBg} backdrop-blur-sm rounded-xl border ${currentTheme.border} overflow-hidden hover:border-opacity-50 transition-colors group`}
               >
                 {/* Thumbnail */}
-                <div className="aspect-square bg-gray-800/50 relative">
+                <div className={`aspect-square ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} relative`}>
                   {model.thumbnailUrl ? (
                     <img
                       src={model.thumbnailUrl}
@@ -440,7 +443,7 @@ export default function MyStorage() {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                      <LucideBox className="w-12 h-12 text-gray-600" />
+                      <LucideBox className={`w-12 h-12 ${currentTheme.textMuted}`} />
                     </div>
                   )}
                   
@@ -500,11 +503,11 @@ export default function MyStorage() {
 
                 {/* Info */}
                 <div className="p-4">
-                  <h3 className="font-medium text-white truncate">{model.name}</h3>
+                  <h3 className={`font-medium ${currentTheme.text} truncate`}>{model.name}</h3>
                   {model.prompt && (
-                    <p className="text-xs text-gray-400 mt-1 line-clamp-2">{model.prompt}</p>
+                    <p className={`text-xs ${currentTheme.textSecondary} mt-1 line-clamp-2`}>{model.prompt}</p>
                   )}
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className={`text-xs ${currentTheme.textMuted} mt-2`}>
                     {new Date(model.createdAt).toLocaleDateString()}
                   </p>
                 </div>
@@ -516,33 +519,33 @@ export default function MyStorage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/30 overflow-hidden"
+            className={`${currentTheme.cardBg} backdrop-blur-sm rounded-xl border ${currentTheme.border} overflow-hidden`}
           >
             <table className="w-full">
-              <thead className="bg-gray-800/30">
+              <thead className={theme === 'dark' ? 'bg-gray-800/30' : 'bg-gray-100'}>
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase">Model</th>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase">Type</th>
-                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase">Created</th>
-                  <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase">Actions</th>
+                  <th className={`px-6 py-4 text-left text-xs font-medium ${currentTheme.textSecondary} uppercase`}>Model</th>
+                  <th className={`px-6 py-4 text-left text-xs font-medium ${currentTheme.textSecondary} uppercase`}>Type</th>
+                  <th className={`px-6 py-4 text-left text-xs font-medium ${currentTheme.textSecondary} uppercase`}>Created</th>
+                  <th className={`px-6 py-4 text-right text-xs font-medium ${currentTheme.textSecondary} uppercase`}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700/30">
+              <tbody className={`divide-y ${theme === 'dark' ? 'divide-gray-700/30' : 'divide-gray-200'}`}>
                 {filteredModels.map((model) => (
-                  <tr key={model._id} className="hover:bg-white/5 transition-colors">
+                  <tr key={model._id} className={`${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-gray-50'} transition-colors`}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-gray-800/50 rounded-lg flex items-center justify-center overflow-hidden">
+                        <div className={`w-12 h-12 ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} rounded-lg flex items-center justify-center overflow-hidden`}>
                           {model.thumbnailUrl ? (
                             <img src={model.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                           ) : (
-                            <LucideBox className="w-6 h-6 text-gray-500" />
+                            <LucideBox className={`w-6 h-6 ${currentTheme.textMuted}`} />
                           )}
                         </div>
                         <div>
-                          <p className="font-medium text-white">{model.name}</p>
+                          <p className={`font-medium ${currentTheme.text}`}>{model.name}</p>
                           {model.prompt && (
-                            <p className="text-xs text-gray-400 truncate max-w-xs">{model.prompt}</p>
+                            <p className={`text-xs ${currentTheme.textSecondary} truncate max-w-xs`}>{model.prompt}</p>
                           )}
                         </div>
                       </div>
@@ -556,35 +559,35 @@ export default function MyStorage() {
                         {model.type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-gray-400 text-sm">
+                    <td className={`px-6 py-4 ${currentTheme.textSecondary} text-sm`}>
                       {new Date(model.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleRegenerate(model)}
-                          className="p-2 text-gray-400 hover:text-green-400 transition-colors"
+                          className={`p-2 ${currentTheme.textSecondary} hover:text-green-400 transition-colors`}
                           title="Edit/Regenerate"
                         >
                           <LucideEdit className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleShare(model)}
-                          className="p-2 text-gray-400 hover:text-blue-400 transition-colors"
+                          className={`p-2 ${currentTheme.textSecondary} hover:text-blue-400 transition-colors`}
                           title="Share"
                         >
                           <LucideShare2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDuplicate(model._id)}
-                          className="p-2 text-gray-400 hover:text-purple-400 transition-colors"
+                          className={`p-2 ${currentTheme.textSecondary} hover:text-purple-400 transition-colors`}
                           title="Duplicate"
                         >
                           <LucideCopy className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(model._id)}
-                          className="p-2 text-gray-400 hover:text-red-400 transition-colors"
+                          className={`p-2 ${currentTheme.textSecondary} hover:text-red-400 transition-colors`}
                           title="Delete"
                         >
                           <LucideTrash2 className="w-4 h-4" />
@@ -607,8 +610,8 @@ export default function MyStorage() {
                 onClick={() => setCurrentPage(page)}
                 className={`w-10 h-10 rounded-lg transition-colors ${
                   currentPage === page
-                    ? "bg-green-500 text-white"
-                    : "bg-gray-800/50 text-gray-400 hover:text-white"
+                    ? `bg-gradient-to-r ${currentTheme.accentGradient} text-white`
+                    : `${currentTheme.cardBg} ${currentTheme.textSecondary} hover:${currentTheme.text}`
                 }`}
               >
                 {page}
@@ -626,19 +629,19 @@ export default function MyStorage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+              className={`${theme === 'dark' ? 'bg-gray-900' : 'bg-white'} border ${currentTheme.border} rounded-2xl p-6 w-full max-w-md shadow-2xl`}
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-white">Share Model</h3>
+                <h3 className={`text-lg font-semibold ${currentTheme.text}`}>Share Model</h3>
                 <button
                   onClick={() => setShowShareModal(false)}
-                  className="text-gray-400 hover:text-white"
+                  className={`${currentTheme.textSecondary} hover:${currentTheme.text}`}
                 >
                   <LucideX className="w-5 h-5" />
                 </button>
               </div>
 
-              <p className="text-gray-400 text-sm mb-4">
+              <p className={`${currentTheme.textSecondary} text-sm mb-4`}>
                 Anyone with this link can view your model
               </p>
 
@@ -647,14 +650,14 @@ export default function MyStorage() {
                   type="text"
                   value={shareLink}
                   readOnly
-                  className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                  className={`flex-1 px-4 py-2 ${theme === 'dark' ? 'bg-gray-800' : 'bg-gray-100'} border ${currentTheme.border} rounded-lg ${currentTheme.text} text-sm`}
                 />
                 <button
                   onClick={copyToClipboard}
                   className={`px-4 py-2 rounded-lg transition-colors ${
                     copied
                       ? "bg-green-500 text-white"
-                      : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                      : `${theme === 'dark' ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`
                   }`}
                 >
                   {copied ? (
@@ -668,7 +671,7 @@ export default function MyStorage() {
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowShareModal(false)}
-                  className="flex-1 py-2 px-4 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors"
+                  className={`flex-1 py-2 px-4 ${theme === 'dark' ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-lg transition-colors`}
                 >
                   Close
                 </button>
@@ -676,7 +679,7 @@ export default function MyStorage() {
                   href={shareLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 py-2 px-4 bg-gradient-to-r from-green-500 to-emerald-400 text-white rounded-lg hover:opacity-90 transition-all text-center flex items-center justify-center gap-2"
+                  className={`flex-1 py-2 px-4 bg-gradient-to-r ${currentTheme.accentGradient} text-white rounded-lg hover:opacity-90 transition-all text-center flex items-center justify-center gap-2`}
                 >
                   <LucideExternalLink className="w-4 h-4" />
                   Open

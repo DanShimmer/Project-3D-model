@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { LogoIcon } from "./Components/Logo";
+import { useTheme } from "./contexts/ThemeContext";
+import { useAuth } from "./contexts/AuthContext";
+import { Sun, Moon } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -10,6 +14,8 @@ export default function LoginPage() {
   const [step, setStep] = useState("credentials"); // credentials | otp
   const [otp, setOtp] = useState("");
   const navigate = useNavigate();
+  const { theme, currentTheme, toggleTheme } = useTheme();
+  const { login: authLogin } = useAuth();
 
   // Canvas background effect
   useEffect(() => {
@@ -42,17 +48,21 @@ export default function LoginPage() {
       alpha: Math.random() * 0.5 + 0.2,
     }));
 
+    // Always use dark theme colors for consistent look
+    const bgColor = "#04060A";
+    const particleColor = theme === 'dark' ? "120,255,100" : "6,182,212"; // lime for dark, cyan for light
+
     let rafId;
     function draw() {
-      ctx.fillStyle = "#04060A";
+      ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, w, h);
 
       for (const p of particles) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(120,255,100,${p.alpha})`;
+        ctx.fillStyle = `rgba(${particleColor},${p.alpha})`;
         ctx.shadowBlur = 15;
-        ctx.shadowColor = "rgba(120,255,100,0.9)";
+        ctx.shadowColor = `rgba(${particleColor},0.9)`;
         ctx.fill();
         ctx.shadowBlur = 0;
 
@@ -72,7 +82,7 @@ export default function LoginPage() {
       window.removeEventListener("resize", resize);
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [theme]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -110,9 +120,10 @@ export default function LoginPage() {
         const data = await res.json();
         
         if (res.ok && data.token) {
-          localStorage.setItem("pv_token", data.token);
-          localStorage.setItem("pv_user", JSON.stringify(data.user));
-          navigate("/generate");
+          // Use AuthContext login to properly update state
+          authLogin(data.user, data.token);
+          // Redirect to home page after successful login
+          navigate("/");
         } else {
           setError(data.msg || "Invalid OTP");
         }
@@ -147,19 +158,25 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col text-white relative">
+    <div className={`min-h-screen flex flex-col ${currentTheme.text} relative`}>
       <canvas id="loginBgCanvas" className="fixed inset-0 w-full h-full -z-10" />
 
       {/* Header */}
-      <header className="backdrop-blur-sm fixed top-0 w-full z-40 bg-white/10 border-b border-gray-800/20">
+      <header className={`backdrop-blur-sm fixed top-0 w-full z-40 ${currentTheme.navBg} border-b ${currentTheme.border}`}>
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="flex items-center justify-between h-20">
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-800/30 rounded-lg flex items-center justify-center">
-                <span className="text-sm font-semibold text-gray-300">PV</span>
-              </div>
-              <span className="font-semibold text-xl tracking-wide">Polyva</span>
+              <LogoIcon size={36} />
+              <span className={`font-semibold text-xl tracking-wide ${currentTheme.text}`}>Polyva</span>
             </Link>
+            <motion.button
+              onClick={toggleTheme}
+              className={`p-2 rounded-full ${currentTheme.buttonSecondary} transition-colors`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              {theme === 'dark' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+            </motion.button>
           </div>
         </div>
       </header>
@@ -172,15 +189,15 @@ export default function LoginPage() {
           transition={{ duration: 0.5 }}
           className="w-full max-w-md"
         >
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-gray-800/30 shadow-2xl">
+          <div className={`${currentTheme.cardBg} backdrop-blur-sm rounded-2xl p-8 border ${currentTheme.border} shadow-2xl`}>
             <header className="text-center mb-8">
-              <div className="w-14 h-14 bg-gradient-to-r from-green-500 to-emerald-400 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <span className="text-white font-bold text-xl">PV</span>
+              <div className="flex items-center justify-center mb-4">
+                <LogoIcon size={56} />
               </div>
-              <h2 className="text-2xl font-bold text-white mb-2">
+              <h2 className={`text-2xl font-bold ${currentTheme.text} mb-2`}>
                 {step === "credentials" ? "Welcome back" : "Verify OTP"}
               </h2>
-              <p className="text-gray-400">
+              <p className={currentTheme.textSecondary}>
                 {step === "credentials" 
                   ? "Sign in to continue to Polyva" 
                   : `Enter the 6-digit code sent to ${email}`}
@@ -191,7 +208,7 @@ export default function LoginPage() {
               {step === "credentials" ? (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="email">
+                    <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-2`} htmlFor="email">
                       Email
                     </label>
                     <input
@@ -199,14 +216,14 @@ export default function LoginPage() {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                      className={`w-full px-4 py-3 rounded-xl bg-gray-800/50 border ${currentTheme.border} ${currentTheme.text} placeholder-gray-500 focus:border-current transition-colors`}
                       placeholder="you@example.com"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="password">
+                    <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-2`} htmlFor="password">
                       Password
                     </label>
                     <input
@@ -214,7 +231,7 @@ export default function LoginPage() {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                      className={`w-full px-4 py-3 rounded-xl bg-gray-800/50 border ${currentTheme.border} ${currentTheme.text} placeholder-gray-500 focus:border-current transition-colors`}
                       placeholder="••••••••"
                       required
                     />
@@ -223,7 +240,7 @@ export default function LoginPage() {
               ) : (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="otp">
+                    <label className={`block text-sm font-medium ${currentTheme.textSecondary} mb-2`} htmlFor="otp">
                       Verification Code
                     </label>
                     <input
@@ -234,7 +251,7 @@ export default function LoginPage() {
                       maxLength={6}
                       value={otp}
                       onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ""))}
-                      className="w-full px-4 py-3 tracking-widest text-center text-lg rounded-xl bg-gray-800/50 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                      className={`w-full px-4 py-3 tracking-widest text-center text-lg rounded-xl bg-gray-800/50 border ${currentTheme.border} ${currentTheme.text} placeholder-gray-500 focus:border-current transition-colors`}
                       placeholder="123456"
                       required
                       autoFocus
@@ -244,7 +261,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={handleResendOtp}
                     disabled={loading}
-                    className="text-sm text-gray-400 hover:text-green-400 transition-colors"
+                    className={`text-sm ${currentTheme.textSecondary} hover:opacity-80 transition-colors`}
                   >
                     Didn't receive code? Resend OTP
                   </button>
@@ -266,7 +283,7 @@ export default function LoginPage() {
                 whileTap={{ scale: 0.98 }}
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-400 text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all"
+                className={`w-full py-3 px-4 rounded-xl bg-gradient-to-r ${currentTheme.accentGradient} text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all`}
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
@@ -284,10 +301,10 @@ export default function LoginPage() {
               <div className="flex justify-between text-sm">
                 {step === "credentials" ? (
                   <>
-                    <Link to="/signup" className="text-gray-400 hover:text-green-400 transition-colors">
+                    <Link to="/signup" className={`${currentTheme.textSecondary} hover:opacity-80 transition-colors`}>
                       Create account
                     </Link>
-                    <Link to="/forgot-password" className="text-gray-400 hover:text-green-400 transition-colors">
+                    <Link to="/forgot-password" className={`${currentTheme.textSecondary} hover:opacity-80 transition-colors`}>
                       Forgot password?
                     </Link>
                   </>
@@ -299,7 +316,7 @@ export default function LoginPage() {
                       setOtp("");
                       setError(null);
                     }}
-                    className="text-gray-400 hover:text-green-400 transition-colors"
+                    className={`${currentTheme.textSecondary} hover:opacity-80 transition-colors`}
                   >
                     ← Back to login
                   </button>
@@ -311,9 +328,9 @@ export default function LoginPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800/20 bg-transparent">
+      <footer className={`border-t ${currentTheme.border} bg-transparent`}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-center">
-          <div className="text-sm text-gray-400">
+          <div className={`text-sm ${currentTheme.textSecondary}`}>
             © {new Date().getFullYear()} Polyva — All rights reserved.
           </div>
         </div>
