@@ -26,38 +26,14 @@ import {
   Moon
 } from "lucide-react";
 
-// Use cases data with local 3D images
+// Use cases data - images to be added later
 const USE_CASES = [
-  { 
-    title: "Film Production", 
-    gradient: "from-slate-500/90 to-slate-600/90",
-    image: "/images/use-cases/film-production.jpg"
-  },
-  { 
-    title: "Product Design", 
-    gradient: "from-blue-500/90 to-indigo-600/90",
-    image: "/images/use-cases/product-design.jpg"
-  },
-  { 
-    title: "Education", 
-    gradient: "from-amber-400/90 to-yellow-500/90",
-    image: "/images/use-cases/education.jpg"
-  },
-  { 
-    title: "Game Development", 
-    gradient: "from-cyan-500/90 to-teal-600/90",
-    image: "/images/use-cases/game-dev.jpg"
-  },
-  { 
-    title: "3D Printing", 
-    gradient: "from-lime-500/90 to-green-600/90",
-    image: "/images/use-cases/3d-printing.jpg"
-  },
-  { 
-    title: "VR/AR", 
-    gradient: "from-purple-500/90 to-pink-600/90",
-    image: "/images/use-cases/vr-ar.jpg"
-  }
+  { title: "Film Production", icon: Film, color: "from-purple-500 to-pink-500" },
+  { title: "Product Design", icon: Box, color: "from-blue-500 to-cyan-500" },
+  { title: "Education", icon: Users, color: "from-green-500 to-emerald-500" },
+  { title: "Game Development", icon: Zap, color: "from-yellow-500 to-orange-500" },
+  { title: "3D Printing", icon: Globe, color: "from-red-500 to-pink-500" },
+  { title: "VR/AR", icon: Star, color: "from-indigo-500 to-purple-500" }
 ];
 
 // How it works steps
@@ -444,33 +420,17 @@ export default function PolyvaApp() {
               transition={{ duration: 0.8, delay: 0.6 }}
               className="mt-20"
             >
-              <h3 className={`text-center text-xl font-semibold mb-8 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-300'}`}>
-                Trusted by creators in
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+              <div className="flex flex-wrap justify-center gap-4">
                 {USE_CASES.map((useCase, i) => (
                   <motion.div
                     key={i}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.1 * i }}
-                    whileHover={{ scale: 1.05, y: -8 }}
-                    className="relative group cursor-pointer flex flex-col items-center"
+                    whileHover={{ scale: 1.05, y: -5 }}
+                    className={`flex items-center gap-3 px-5 py-3 bg-white/5 border border-white/10 rounded-full backdrop-blur-sm ${theme === 'dark' ? 'hover:border-lime-500/30' : 'hover:border-cyan-500/30'} transition-all cursor-pointer`}
                   >
-                    {/* 3D Model Image - floating above card */}
-                    <div className="relative z-10 -mb-8">
-                      <img 
-                        src={useCase.image} 
-                        alt={useCase.title}
-                        className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-2xl group-hover:scale-110 transition-transform duration-300"
-                        style={{ filter: 'drop-shadow(0 20px 30px rgba(0,0,0,0.4))' }}
-                      />
+                    <div className={`w-8 h-8 rounded-full bg-gradient-to-r ${useCase.color} flex items-center justify-center`}>
+                      <useCase.icon className="w-4 h-4 text-white" />
                     </div>
-                    
-                    {/* Gradient Card Background */}
-                    <div className={`w-full pt-12 pb-4 px-4 rounded-3xl bg-gradient-to-br ${useCase.gradient} shadow-lg group-hover:shadow-xl transition-all`}>
-                      <h4 className="font-semibold text-white text-center text-sm">{useCase.title}</h4>
-                    </div>
+                    <span className="text-sm font-medium text-gray-300">{useCase.title}</span>
                   </motion.div>
                 ))}
               </div>
