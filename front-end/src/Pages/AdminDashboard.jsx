@@ -17,7 +17,10 @@ import {
   LucideLogOut,
   LucideHome,
   LucideRefreshCw,
+  LucidePlus,
 } from "lucide-react";
+import { getAvatarById } from "../Components/AvatarModal";
+import { createUser } from "../api/admin";
 
 const API_URL = "http://localhost:5000/api";
 
@@ -35,7 +38,9 @@ export default function AdminDashboard() {
   const [userModels, setUserModels] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showModelsModal, setShowModelsModal] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [editForm, setEditForm] = useState({ name: "", email: "", isVerified: false });
+  const [addUserForm, setAddUserForm] = useState({ email: "", password: "", role: "user" });
   const [actionLoading, setActionLoading] = useState(false);
 
   const getToken = () => localStorage.getItem("pv_token");
@@ -211,16 +216,40 @@ export default function AdminDashboard() {
     }
   };
 
-  // Handle logout - fully clears auth state and redirects to login
+  // Handle add user
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    setActionLoading(true);
+    try {
+      const res = await createUser(addUserForm.email, addUserForm.password, addUserForm.role);
+      if (res.success) {
+        setShowAddUserModal(false);
+        setAddUserForm({ email: "", password: "", role: "user" });
+        if (addUserForm.role === "user") {
+          fetchUsers(); // Refresh users list if role is user
+        }
+        alert(addUserForm.role === "admin" 
+          ? "Admin account created successfully! This account can only be used to login via Admin Login." 
+          : "User created successfully!");
+      } else {
+        alert(res.message || "Failed to create user");
+      }
+    } catch (err) {
+      console.error("Error creating user:", err);
+      alert("Error creating user");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Handle logout - fully clears auth state and redirects to home
   const handleLogout = () => {
     // Clear all authentication data
     localStorage.removeItem("pv_token");
     localStorage.removeItem("pv_user");
     localStorage.removeItem("pv_admin_token");
-    // Redirect to login page
-    navigate("/login");
-    // Force page reload to clear any cached state
-    window.location.reload();
+    // Redirect to home page
+    navigate("/");
   };
 
   // Canvas background
@@ -448,8 +477,21 @@ export default function AdminDashboard() {
                     fetchUsers();
                   }}
                   className="p-2 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-400 hover:text-white transition-colors"
+                  title="Refresh"
                 >
                   <LucideRefreshCw className="w-5 h-5" />
+                </button>
+
+                {/* Add User */}
+                <button
+                  onClick={() => {
+                    setAddUserForm({ email: "", password: "", role: "user" });
+                    setShowAddUserModal(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  <LucidePlus className="w-4 h-4" />
+                  Add User
                 </button>
               </div>
             </div>
@@ -491,9 +533,16 @@ export default function AdminDashboard() {
                     <tr key={u._id} className="hover:bg-gray-700/30 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 flex-shrink-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold shadow-lg">
-                            {(u.name || u.email)[0].toUpperCase()}
-                          </div>
+                          {/* User Avatar - shows custom avatar if set */}
+                          {u.avatar ? (
+                            <div className={`w-10 h-10 flex-shrink-0 bg-gradient-to-br ${getAvatarById(u.avatar).gradient} rounded-full flex items-center justify-center text-lg shadow-lg`}>
+                              {getAvatarById(u.avatar).emoji}
+                            </div>
+                          ) : (
+                            <div className="w-10 h-10 flex-shrink-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold shadow-lg">
+                              {(u.name || u.email)[0].toUpperCase()}
+                            </div>
+                          )}
                           <div className="min-w-0 flex-1">
                             <p className="text-white font-semibold truncate">{u.name || "No name"}</p>
                             <p className="text-gray-400 text-sm truncate">{u.email}</p>
@@ -733,6 +782,103 @@ export default function AdminDashboard() {
                   </div>
                 )}
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add User Modal */}
+        {showAddUserModal && (
+          <div className="fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-white">Add New User</h3>
+                <button
+                  onClick={() => setShowAddUserModal(false)}
+                  className="text-gray-400 hover:text-white"
+                >
+                  <LucideX className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddUser} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={addUserForm.email}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, email: e.target.value })}
+                    required
+                    className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                    placeholder="user@example.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Password</label>
+                  <input
+                    type="password"
+                    value={addUserForm.password}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, password: e.target.value })}
+                    required
+                    minLength={6}
+                    className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                    placeholder="Min 6 characters"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Role</label>
+                  <select
+                    value={addUserForm.role}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, role: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:border-purple-500"
+                  >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {addUserForm.role === "admin" 
+                      ? "Admin accounts won't appear in the user table. They can only login via Admin Login."
+                      : "User accounts will appear in the table and can login normally."
+                    }
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddUserModal(false)}
+                    className="flex-1 py-2.5 px-4 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="flex-1 py-2.5 px-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {actionLoading ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <LucidePlus className="w-4 h-4" />
+                        Create User
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

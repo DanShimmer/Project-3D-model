@@ -14,6 +14,7 @@ import Blogs from "./Pages/Blogs";
 import Document from "./Pages/Document";
 import Tutorial from "./Pages/Tutorial";
 import HelpCenter from "./Pages/HelpCenter";
+import Contact from "./Pages/Contact";
 import AdminDashboard from "./Pages/AdminDashboard";
 import MyStorage from "./Pages/MyStorage";
 import "./index.css";
@@ -70,6 +71,10 @@ const router = createBrowserRouter([
   {
     path: "/help",
     element: <HelpCenter />
+  },
+  {
+    path: "/contact",
+    element: <Contact />
   },
   {
     path: "/admin",

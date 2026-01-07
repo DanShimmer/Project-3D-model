@@ -279,3 +279,56 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     res.status(500).json({ msg: "Server error" });
   }
 };
+
+// Create new user (admin only)
+export const createUser = async (req: Request, res: Response) => {
+  try {
+    const { email, password, role } = req.body;
+
+    if (!email || !password || !role) {
+      return res.status(400).json({ msg: "Email, password and role are required" });
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ msg: "Email already registered" });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const newUser = await User.create({
+      email,
+      password: hashedPassword,
+      isVerified: true, // Admin-created users are auto-verified
+      isAdmin: role === "admin",
+      name: email.split("@")[0], // Default name from email
+    });
+
+    // Only return user data for non-admin users (admin users won't show in table)
+    if (role === "admin") {
+      return res.json({
+        msg: "Admin account created successfully. This account can login via Admin Login.",
+        isAdmin: true,
+      });
+    }
+
+    res.json({
+      msg: "User created successfully",
+      user: {
+        _id: newUser._id,
+        email: newUser.email,
+        name: newUser.name,
+        isVerified: newUser.isVerified,
+        isBlocked: newUser.isBlocked,
+        isAdmin: newUser.isAdmin,
+        createdAt: newUser.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error creating user:", error);
+    res.status(500).json({ msg: "Server error" });
+  }
+};

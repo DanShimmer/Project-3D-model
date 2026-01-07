@@ -18,7 +18,7 @@ export default function TextTo3D() {
 
   // Auth state
   const [showAuth, setShowAuth] = useState(false);
-  const [mode, setMode] = useState("login"); // login | signup | forgot | otp
+  const [mode, setMode] = useState("login"); 
   const [form, setForm] = useState({ email: "", password: "", otp: "" });
   const [msg, setMsg] = useState("");
 

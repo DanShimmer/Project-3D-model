@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import LoginModal from "./Components/LoginModal";
+import AvatarModal, { getAvatarById } from "./Components/AvatarModal";
 import { useAuth } from "./contexts/AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
 import Logo, { LogoIcon } from "./Components/Logo";
+import { updateProfile } from "./api/auth";
 import { 
   Sparkles, 
   Box, 
@@ -23,7 +25,8 @@ import {
   Globe,
   CheckCircle,
   Sun,
-  Moon
+  Moon,
+  Camera
 } from "lucide-react";
 
 // Use cases data - images to be added later
@@ -64,8 +67,9 @@ const STEPS = [
 export default function PolyvaApp() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
   const navigate = useNavigate();
-  const { user, login, logout: authLogout } = useAuth();
+  const { user, login, logout: authLogout, updateUser, getToken } = useAuth();
   const { theme, toggleTheme, currentTheme } = useTheme();
   const canvasRef = useRef(null);
 
@@ -78,7 +82,26 @@ export default function PolyvaApp() {
   // Handle login success
   const handleLoginSuccess = (userData, token) => {
     login(userData, token);
-    setShowLoginModal(false);
+  };
+
+  // Handle avatar change
+  const handleAvatarChange = async (newAvatar) => {
+    const token = getToken();
+    if (!token) return;
+
+    const result = await updateProfile(token, { avatar: newAvatar });
+    if (result.user) {
+      updateUser({ ...user, avatar: newAvatar });
+    }
+  };
+
+  // Get avatar display - not affected by theme
+  const getUserAvatar = () => {
+    if (user?.avatar) {
+      const avatarStyle = getAvatarById(user.avatar);
+      return avatarStyle;
+    }
+    return null;
   };
   
   // Canvas animation
@@ -206,12 +229,14 @@ export default function PolyvaApp() {
                         <Link to="/docs" className={`block ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>Documentation</Link>
                         <Link to="/tutorials" className={`block ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>Tutorials</Link>
                         <Link to="/help" className={`block ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>Help Center</Link>
+                        <Link to="/contact" className={`block ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>Contact Us</Link>
                       </div>
                     </div>
                   </div>
                 </NavDropdown>
 
                 <a href="#pricing" className={`px-4 py-2 text-sm ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>Pricing</a>
+                <a href="#contact" className={`px-4 py-2 text-sm ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>Contact</a>
               </nav>
             </div>
 
@@ -250,21 +275,36 @@ export default function PolyvaApp() {
 
                   <div className="relative group">
                     <button className={`flex items-center gap-2 px-3 py-2 rounded-full ${currentTheme.buttonSecondary} transition-colors`}>
-                      <div className={`w-7 h-7 bg-gradient-to-br ${currentTheme.accentGradient} rounded-full flex items-center justify-center text-white text-xs font-semibold`}>
-                        {(user.name || user.email)[0].toUpperCase()}
-                      </div>
+                      {/* Avatar - uses fixed gradient colors, not affected by theme */}
+                      {getUserAvatar() ? (
+                        <div className={`w-7 h-7 bg-gradient-to-br ${getUserAvatar().gradient} rounded-full flex items-center justify-center text-sm`}>
+                          {getUserAvatar().emoji}
+                        </div>
+                      ) : (
+                        <div className={`w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white text-xs font-semibold`}>
+                          {(user.name || user.email)[0].toUpperCase()}
+                        </div>
+                      )}
                       <ChevronDown className={`w-4 h-4 ${currentTheme.textSecondary}`} />
                     </button>
 
                     <div className={`opacity-0 invisible group-hover:visible group-hover:opacity-100 transition-all duration-200 absolute right-0 mt-2 w-56 bg-gray-900/95 backdrop-blur-xl border ${currentTheme.border} rounded-xl shadow-2xl overflow-hidden`}>
                       <div className={`px-4 py-3 border-b ${currentTheme.border}`}>
-                        <p className="text-sm font-medium truncate">{user.name || user.email}</p>
-                        <p className={`text-xs ${currentTheme.textMuted} truncate`}>{user.email}</p>
+                        <p className="text-sm font-medium text-white truncate">{user.name || user.email}</p>
+                        <p className={`text-xs text-gray-400 truncate`}>{user.email}</p>
                       </div>
                       <div className="py-2">
+                        {/* Change Avatar */}
+                        <button 
+                          onClick={() => setShowAvatarModal(true)} 
+                          className={`w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 hover:text-white`}
+                        >
+                          <Camera className="w-4 h-4" />
+                          Change Avatar
+                        </button>
                         {/* My Storage - Hidden for admin users */}
                         {!user.isAdmin && (
-                          <Link to="/my-storage" className={`flex items-center gap-3 px-4 py-2 text-sm ${currentTheme.textSecondary} hover:bg-white/5 hover:${currentTheme.text}`}>
+                          <Link to="/my-storage" className={`flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 hover:text-white`}>
                             <Box className="w-4 h-4" />
                             My Storage
                           </Link>
@@ -323,6 +363,7 @@ export default function PolyvaApp() {
               <Link to="/showcase" className="block py-2 text-gray-300 hover:text-white">Showcase</Link>
               <Link to="/blogs" className="block py-2 text-gray-300 hover:text-white">Blogs</Link>
               <a href="#pricing" className="block py-2 text-gray-300 hover:text-white">Pricing</a>
+              <a href="#contact" className="block py-2 text-gray-300 hover:text-white">Contact</a>
               <div className="pt-4 flex gap-3">
                 {user ? (
                   <>
@@ -352,6 +393,17 @@ export default function PolyvaApp() {
         <LoginModal 
           onClose={() => setShowLoginModal(false)} 
           onLoginSuccess={handleLoginSuccess}
+        />
+      )}
+
+      {/* Avatar Modal */}
+      {user && (
+        <AvatarModal
+          isOpen={showAvatarModal}
+          onClose={() => setShowAvatarModal(false)}
+          currentAvatar={user.avatar}
+          onSave={handleAvatarChange}
+          userName={user.name || user.email}
         />
       )}
 
@@ -788,6 +840,116 @@ export default function PolyvaApp() {
                   </button>
                 </motion.div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Contact Section */}
+        <section id="contact" className="py-24 relative">
+          <div className="max-w-7xl mx-auto px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              viewport={{ once: true }}
+              className="text-center mb-16"
+            >
+              <h2 className="text-4xl md:text-5xl font-bold mb-4">Get in Touch</h2>
+              <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+                Have questions? We'd love to hear from you. Send us a message and we'll respond as soon as possible.
+              </p>
+            </motion.div>
+
+            <div className="grid lg:grid-cols-2 gap-12 items-start">
+              {/* Contact Info */}
+              <motion.div
+                initial={{ opacity: 0, x: -30 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6 }}
+                viewport={{ once: true }}
+                className="space-y-8"
+              >
+                <div className="space-y-6">
+                  {[
+                    { icon: "📧", title: "Email", info: "support@polyva.ai", desc: "We'll respond within 24 hours" },
+                    { icon: "💬", title: "Live Chat", info: "Available 9AM - 6PM EST", desc: "Get instant help from our team" },
+                    { icon: "📍", title: "Office", info: "Ho Chi Minh City, Vietnam", desc: "Visit us at our headquarters" },
+                    { icon: "🌐", title: "Community", info: "discord.gg/polyva", desc: "Join thousands of creators" }
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-start gap-4 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 transition-colors">
+                      <div className="text-2xl">{item.icon}</div>
+                      <div>
+                        <h4 className="font-semibold text-white">{item.title}</h4>
+                        <p className={`${theme === 'dark' ? 'text-lime-400' : 'text-cyan-400'} font-medium`}>{item.info}</p>
+                        <p className="text-gray-400 text-sm">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Contact Form */}
+              <motion.div
+                initial={{ opacity: 0, x: 30 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6 }}
+                viewport={{ once: true }}
+              >
+                <form className="space-y-6 p-8 rounded-2xl bg-gradient-to-br from-gray-900 to-black border border-white/10">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">First Name</label>
+                      <input
+                        type="text"
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-lime-500/50 focus:outline-none transition-colors"
+                        placeholder="John"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Last Name</label>
+                      <input
+                        type="text"
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-lime-500/50 focus:outline-none transition-colors"
+                        placeholder="Doe"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
+                    <input
+                      type="email"
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-lime-500/50 focus:outline-none transition-colors"
+                      placeholder="john@example.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Subject</label>
+                    <select className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-lime-500/50 focus:outline-none transition-colors">
+                      <option value="" className="bg-gray-900">Select a topic</option>
+                      <option value="general" className="bg-gray-900">General Inquiry</option>
+                      <option value="support" className="bg-gray-900">Technical Support</option>
+                      <option value="billing" className="bg-gray-900">Billing Question</option>
+                      <option value="enterprise" className="bg-gray-900">Enterprise Sales</option>
+                      <option value="feedback" className="bg-gray-900">Feedback</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Message</label>
+                    <textarea
+                      rows={5}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-lime-500/50 focus:outline-none transition-colors resize-none"
+                      placeholder="Tell us how we can help..."
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className={`w-full py-4 rounded-xl font-semibold transition-all ${theme === 'dark' ? 'bg-lime-500 hover:bg-lime-400' : 'bg-cyan-500 hover:bg-cyan-400'} text-white flex items-center justify-center gap-2`}
+                  >
+                    Send Message
+                    <ArrowRight className="w-5 h-5" />
+                  </button>
+                </form>
+              </motion.div>
             </div>
           </div>
         </section>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
 import { LogoIcon } from "./Components/Logo";
+import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
 import { 
   Heart, 
   Share2, 
@@ -25,6 +26,15 @@ import {
   Moon
 } from "lucide-react";
 import { useTheme } from "./contexts/ThemeContext";
+
+// Helper function to get model type from title/description
+const getModelTypeFromPrompt = (title, description) => {
+  const text = `${title || ''} ${description || ''}`.toLowerCase();
+  if (text.includes("sword") || text.includes("kiếm")) return "sword";
+  if (text.includes("car") || text.includes("xe") || text.includes("oto")) return "car";
+  if (text.includes("cat") || text.includes("mèo")) return "cat";
+  return "robot";
+};
 
 // Sample models data (will be merged with shared models from localStorage)
 const SAMPLE_MODELS = [
@@ -487,20 +497,28 @@ export default function ShowcasePage() {
               >
                 {/* Image */}
                 <div 
-                  className={`relative aspect-square ${theme === 'dark' ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-100 to-gray-200'} cursor-pointer`}
+                  className={`relative aspect-square ${theme === 'dark' ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-100 to-gray-200'} cursor-pointer overflow-hidden`}
                   onClick={() => setSelectedModel(model)}
                 >
                   <div className={`absolute inset-0 bg-gradient-to-br ${theme === 'dark' ? 'from-lime-500/5' : 'from-cyan-500/5'} to-transparent`} />
-                  {model.image ? (
+                  {model.isDemo || !model.image || model.image.includes("placeholder") ? (
+                    <DemoModelPreview 
+                      modelType={getModelTypeFromPrompt(model.title, model.description)}
+                      className="w-full h-full"
+                      autoRotate={true}
+                    />
+                  ) : model.image ? (
                     <img 
                       src={model.image} 
                       alt={model.title}
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Box className={`w-16 h-16 ${currentTheme.textMuted}`} />
-                    </div>
+                    <DemoModelPreview 
+                      modelType={getModelTypeFromPrompt(model.title, model.description)}
+                      className="w-full h-full"
+                      autoRotate={true}
+                    />
                   )}
                   
                   {/* Hover Overlay */}
@@ -649,17 +667,25 @@ export default function ShowcasePage() {
 
               <div className="grid md:grid-cols-2 gap-0">
                 {/* Image/3D View */}
-                <div className={`aspect-square ${theme === 'dark' ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-100 to-gray-200'} relative`}>
-                  {selectedModel.image ? (
+                <div className={`aspect-square ${theme === 'dark' ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-100 to-gray-200'} relative overflow-hidden`}>
+                  {selectedModel.isDemo || !selectedModel.image || selectedModel.image.includes("placeholder") ? (
+                    <DemoModelPreview 
+                      modelType={getModelTypeFromPrompt(selectedModel.title, selectedModel.description)}
+                      className="w-full h-full"
+                      autoRotate={true}
+                    />
+                  ) : selectedModel.image ? (
                     <img 
                       src={selectedModel.image}
                       alt={selectedModel.title}
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Box className={`w-24 h-24 ${currentTheme.textMuted}`} />
-                    </div>
+                    <DemoModelPreview 
+                      modelType={getModelTypeFromPrompt(selectedModel.title, selectedModel.description)}
+                      className="w-full h-full"
+                      autoRotate={true}
+                    />
                   )}
                 </div>
 
