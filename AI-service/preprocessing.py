@@ -7,9 +7,23 @@ Image Preprocessing Module
 import io
 import numpy as np
 from PIL import Image
-from rembg import remove
 import cv2
 from config import ProcessingConfig as cfg
+
+# Lazy load rembg to avoid numba initialization issues
+_rembg_remove = None
+
+def _get_rembg():
+    """Lazy load rembg module"""
+    global _rembg_remove
+    if _rembg_remove is None:
+        try:
+            from rembg import remove as rembg_remove
+            _rembg_remove = rembg_remove
+        except Exception as e:
+            print(f"Warning: Could not load rembg: {e}")
+            _rembg_remove = lambda x: x  # Return input unchanged
+    return _rembg_remove
 
 
 def remove_background(image: Image.Image) -> Image.Image:
@@ -17,14 +31,24 @@ def remove_background(image: Image.Image) -> Image.Image:
     Remove background from image using rembg (U2-Net)
     Returns RGBA image with transparent background
     """
+    remove_fn = _get_rembg()
+    
     # Convert to bytes for rembg
     img_bytes = io.BytesIO()
     image.save(img_bytes, format='PNG')
     img_bytes.seek(0)
     
     # Remove background
-    output_bytes = remove(img_bytes.read())
-    result = Image.open(io.BytesIO(output_bytes)).convert('RGBA')
+    try:
+        output_bytes = remove_fn(img_bytes.read())
+        if isinstance(output_bytes, bytes):
+            result = Image.open(io.BytesIO(output_bytes)).convert('RGBA')
+        else:
+            # If rembg failed, return original with alpha
+            result = image.convert('RGBA')
+    except Exception as e:
+        print(f"Warning: Background removal failed: {e}")
+        result = image.convert('RGBA')
     
     return result
 

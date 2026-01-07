@@ -90,3 +90,24 @@ export async function checkAIHealth() {
   }
 }
 
+/**
+ * Update model with modelType
+ * @param {string} modelId - Model ID to update
+ * @param {string} modelType - Type of demo model (robot, sword, car, cat)
+ */
+export async function updateModelType(modelId, modelType) {
+  try {
+    const res = await fetch(`${API_BASE}/models/${modelId}`, {
+      method: "PUT",
+      headers: { 
+        "Content-Type": "application/json", 
+        ...authHeaders() 
+      },
+      body: JSON.stringify({ modelType }),
+    });
+    return res.json();
+  } catch (error) {
+    console.error("Update model type error:", error);
+    return { ok: false, msg: error.message };
+  }
+}

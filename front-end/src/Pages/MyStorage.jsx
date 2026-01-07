@@ -18,13 +18,28 @@ import {
   LucideExternalLink,
   LucideCheck,
   LucideFolder,
+  LucideLink,
+  LucideSparkles,
   Sun,
   Moon,
 } from "lucide-react";
 import { LogoIcon } from "../Components/Logo";
+import { DemoModelPreview, DEMO_MODEL_TYPES } from "../Components/DemoModels";
 import { useTheme } from "../contexts/ThemeContext";
 
 const API_URL = "http://localhost:5000/api";
+
+// Helper function to get model type from prompt
+// Order matters! Check 'cat' before 'car' since 'car' is substring of 'cartoon'
+const getModelTypeFromPrompt = (prompt) => {
+  if (!prompt) return "robot";
+  const p = prompt.toLowerCase();
+  if (p.includes("sword") || p.includes("kiếm") || p.includes("blade")) return "sword";
+  if (p.includes("cat") || p.includes("mèo") || p.includes("kitten")) return "cat";
+  if (p.includes("car") || p.includes("xe") || p.includes("oto") || p.includes("vehicle")) return "car";
+  if (p.includes("robot") || p.includes("bot") || p.includes("droid")) return "robot";
+  return "robot";
+};
 
 export default function MyStorage() {
   const { theme, currentTheme, toggleTheme } = useTheme();
@@ -44,6 +59,9 @@ export default function MyStorage() {
   const [shareLink, setShareLink] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shareMode, setShareMode] = useState("link"); // "link" | "showcase"
+  const [shareTitle, setShareTitle] = useState("");
+  const [shareDescription, setShareDescription] = useState("");
 
   const getToken = () => localStorage.getItem("pv_token");
 
@@ -138,22 +156,49 @@ export default function MyStorage() {
   // Handle share
   const handleShare = async (model) => {
     setSelectedModel(model);
-    setActionLoading(true);
+    setShareTitle(model.name || "Untitled Model");
+    setShareDescription(model.prompt || "");
+    setShareMode("link");
+    setCopied(false);
+    
+    // Generate share link
+    const shareId = model.shareToken || `model-${model._id}`;
+    setShareLink(`${window.location.origin}/share/${shareId}`);
+    setShowShareModal(true);
+  };
+
+  // Share to showcase
+  const handleShareToShowcase = () => {
+    if (!selectedModel) return;
     
     try {
-      const res = await fetch(`${API_URL}/models/${model._id}/share`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setShareLink(`${window.location.origin}/share/${data.shareToken}`);
-        setShowShareModal(true);
-      }
+      const existingShared = JSON.parse(localStorage.getItem("pv_showcase_models") || "[]");
+      
+      const sharedModel = {
+        id: Date.now(),
+        title: shareTitle,
+        description: shareDescription,
+        modelUrl: selectedModel.modelUrl,
+        imageUrl: selectedModel.thumbnailUrl,
+        author: user?.name || user?.email || "Anonymous",
+        authorId: user?._id,
+        likes: 0,
+        comments: [],
+        createdAt: new Date().toISOString(),
+        variant: selectedModel.variant || 1,
+        color: selectedModel.color || "#22c55e",
+        isDemo: true,
+        tags: ["ai-generated", selectedModel.type]
+      };
+      
+      existingShared.unshift(sharedModel);
+      localStorage.setItem("pv_showcase_models", JSON.stringify(existingShared));
+      
+      setShowShareModal(false);
+      alert("Model has been shared to Showcase!");
     } catch (err) {
-      console.error("Error sharing model:", err);
-    } finally {
-      setActionLoading(false);
+      console.error("Error sharing to showcase:", err);
+      alert("An error occurred while sharing");
     }
   };
 
@@ -342,8 +387,7 @@ export default function MyStorage() {
                 placeholder="Search models..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className={`pl-10 pr-4 py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} text-sm focus:border-current focus:ring-1 w-full sm:w-64`}
-                style={{ borderColor: theme === 'dark' ? 'rgb(55, 65, 81)' : 'rgb(209, 213, 219)' }}
+                className={`pl-10 pr-4 py-2 bg-gray-800/80 border border-white/10 rounded-xl ${currentTheme.text} text-sm focus:border-current focus:ring-1 w-full sm:w-64`}
               />
             </div>
 
@@ -356,17 +400,18 @@ export default function MyStorage() {
                   setTypeFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className={`pl-10 pr-8 py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} text-sm appearance-none cursor-pointer`}
+                className={`pl-10 pr-8 py-2 bg-gray-800/80 border border-white/10 rounded-xl ${currentTheme.text} text-sm appearance-none cursor-pointer`}
+                style={{ backgroundColor: '#1f2937' }}
               >
-                <option value="all">All Types</option>
-                <option value="text-to-3d">Text to 3D</option>
-                <option value="image-to-3d">Image to 3D</option>
+                <option value="all" style={{ backgroundColor: '#1f2937', color: '#ffffff' }}>All Types</option>
+                <option value="text-to-3d" style={{ backgroundColor: '#1f2937', color: '#ffffff' }}>Text to 3D</option>
+                <option value="image-to-3d" style={{ backgroundColor: '#1f2937', color: '#ffffff' }}>Image to 3D</option>
               </select>
             </div>
           </div>
 
           {/* View Mode */}
-          <div className={`flex items-center gap-2 ${currentTheme.cardBg} rounded-xl p-1`}>
+          <div className={`flex items-center gap-2 bg-gray-800/80 rounded-xl p-1`}>
             <button
               onClick={() => setViewMode("grid")}
               className={`p-2 rounded-lg transition-colors ${
@@ -403,7 +448,7 @@ export default function MyStorage() {
             animate={{ opacity: 1 }}
             className="text-center py-20"
           >
-            <div className={`w-20 h-20 ${currentTheme.cardBg} rounded-full flex items-center justify-center mx-auto mb-4`}>
+            <div className={`w-20 h-20 bg-gray-800/80 rounded-full flex items-center justify-center mx-auto mb-4`}>
               <LucideBox className={`w-10 h-10 ${currentTheme.textMuted}`} />
             </div>
             <h3 className={`text-xl font-semibold ${currentTheme.text} mb-2`}>No models yet</h3>
@@ -431,41 +476,43 @@ export default function MyStorage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className={`${currentTheme.cardBg} backdrop-blur-sm rounded-xl border ${currentTheme.border} overflow-hidden hover:border-opacity-50 transition-colors group`}
+                className={`bg-gray-900/80 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden hover:border-white/20 transition-colors group`}
               >
-                {/* Thumbnail */}
-                <div className={`aspect-square ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} relative`}>
-                  {model.thumbnailUrl ? (
+                {/* Thumbnail - Always use DemoModelPreview for demo models */}
+                <div className={`aspect-square bg-gray-800/50 relative overflow-hidden`}>
+                  {model.thumbnailUrl && !model.isDemo && model.thumbnailUrl.startsWith('http') ? (
                     <img
                       src={model.thumbnailUrl}
                       alt={model.name}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // If image fails to load, hide it and show demo model
+                        e.target.style.display = 'none';
+                      }}
                     />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <LucideBox className={`w-12 h-12 ${currentTheme.textMuted}`} />
-                    </div>
-                  )}
+                  ) : null}
+                  {/* Always show DemoModelPreview as fallback or primary for demo models */}
+                  <div className={`absolute inset-0 ${model.thumbnailUrl && !model.isDemo && model.thumbnailUrl.startsWith('http') ? 'hidden' : ''}`}>
+                    <DemoModelPreview 
+                      modelType={model.modelType || getModelTypeFromPrompt(model.prompt || model.name)}
+                      className="w-full h-full"
+                      autoRotate={true}
+                    />
+                  </div>
                   
-                  {/* Type Badge */}
-                  <div className="absolute top-3 left-3">
-                    <span className={`px-2 py-1 text-xs rounded-full ${
+                  {/* Type Badge - Icon only */}
+                  <div className="absolute top-2 left-2">
+                    <div className={`p-1.5 rounded-lg backdrop-blur-sm ${
                       model.type === "text-to-3d"
-                        ? "bg-blue-500/20 text-blue-400"
-                        : "bg-purple-500/20 text-purple-400"
-                    }`}>
+                        ? "bg-blue-500/30 text-blue-400"
+                        : "bg-purple-500/30 text-purple-400"
+                    }`} title={model.type === "text-to-3d" ? "Text to 3D" : "Image to 3D"}>
                       {model.type === "text-to-3d" ? (
-                        <span className="flex items-center gap-1">
-                          <LucideType className="w-3 h-3" />
-                          Text
-                        </span>
+                        <LucideType className="w-4 h-4" />
                       ) : (
-                        <span className="flex items-center gap-1">
-                          <LucideImage className="w-3 h-3" />
-                          Image
-                        </span>
+                        <LucideImage className="w-4 h-4" />
                       )}
-                    </span>
+                    </div>
                   </div>
 
                   {/* Actions Overlay */}
@@ -519,10 +566,10 @@ export default function MyStorage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className={`${currentTheme.cardBg} backdrop-blur-sm rounded-xl border ${currentTheme.border} overflow-hidden`}
+            className={`bg-gray-900/80 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden`}
           >
             <table className="w-full">
-              <thead className={theme === 'dark' ? 'bg-gray-800/30' : 'bg-gray-100'}>
+              <thead className="bg-gray-800/50">
                 <tr>
                   <th className={`px-6 py-4 text-left text-xs font-medium ${currentTheme.textSecondary} uppercase`}>Model</th>
                   <th className={`px-6 py-4 text-left text-xs font-medium ${currentTheme.textSecondary} uppercase`}>Type</th>
@@ -530,16 +577,20 @@ export default function MyStorage() {
                   <th className={`px-6 py-4 text-right text-xs font-medium ${currentTheme.textSecondary} uppercase`}>Actions</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${theme === 'dark' ? 'divide-gray-700/30' : 'divide-gray-200'}`}>
+              <tbody className={`divide-y divide-gray-700/30`}>
                 {filteredModels.map((model) => (
-                  <tr key={model._id} className={`${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-gray-50'} transition-colors`}>
+                  <tr key={model._id} className={`hover:bg-white/5 transition-colors`}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 ${theme === 'dark' ? 'bg-gray-800/50' : 'bg-gray-100'} rounded-lg flex items-center justify-center overflow-hidden`}>
-                          {model.thumbnailUrl ? (
+                        <div className={`w-12 h-12 bg-gray-800/50 rounded-lg flex items-center justify-center overflow-hidden`}>
+                          {model.thumbnailUrl && !model.isDemo ? (
                             <img src={model.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                           ) : (
-                            <LucideBox className={`w-6 h-6 ${currentTheme.textMuted}`} />
+                            <DemoModelPreview 
+                              modelType={getModelTypeFromPrompt(model.prompt)}
+                              className="w-full h-full"
+                              autoRotate={true}
+                            />
                           )}
                         </div>
                         <div>
@@ -611,7 +662,7 @@ export default function MyStorage() {
                 className={`w-10 h-10 rounded-lg transition-colors ${
                   currentPage === page
                     ? `bg-gradient-to-r ${currentTheme.accentGradient} text-white`
-                    : `${currentTheme.cardBg} ${currentTheme.textSecondary} hover:${currentTheme.text}`
+                    : `bg-gray-800/80 ${currentTheme.textSecondary} hover:${currentTheme.text}`
                 }`}
               >
                 {page}
@@ -629,7 +680,7 @@ export default function MyStorage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className={`${theme === 'dark' ? 'bg-gray-900' : 'bg-white'} border ${currentTheme.border} rounded-2xl p-6 w-full max-w-md shadow-2xl`}
+              className={`bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl`}
             >
               <div className="flex items-center justify-between mb-6">
                 <h3 className={`text-lg font-semibold ${currentTheme.text}`}>Share Model</h3>
@@ -641,50 +692,126 @@ export default function MyStorage() {
                 </button>
               </div>
 
-              <p className={`${currentTheme.textSecondary} text-sm mb-4`}>
-                Anyone with this link can view your model
-              </p>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={shareLink}
-                  readOnly
-                  className={`flex-1 px-4 py-2 ${theme === 'dark' ? 'bg-gray-800' : 'bg-gray-100'} border ${currentTheme.border} rounded-lg ${currentTheme.text} text-sm`}
-                />
+              {/* Share mode tabs */}
+              <div className={`flex gap-2 mb-6 bg-gray-800/80 rounded-xl p-1`}>
                 <button
-                  onClick={copyToClipboard}
-                  className={`px-4 py-2 rounded-lg transition-colors ${
-                    copied
-                      ? "bg-green-500 text-white"
-                      : `${theme === 'dark' ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`
+                  onClick={() => setShareMode("link")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    shareMode === "link"
+                      ? `bg-gradient-to-r ${currentTheme.accentGradient} text-white`
+                      : currentTheme.textSecondary
                   }`}
                 >
-                  {copied ? (
-                    <LucideCheck className="w-5 h-5" />
-                  ) : (
-                    <LucideCopy className="w-5 h-5" />
-                  )}
+                  <LucideLink className="w-4 h-4" />
+                  Copy Link
+                </button>
+                <button
+                  onClick={() => setShareMode("showcase")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    shareMode === "showcase"
+                      ? `bg-gradient-to-r ${currentTheme.accentGradient} text-white`
+                      : currentTheme.textSecondary
+                  }`}
+                >
+                  <LucideSparkles className="w-4 h-4" />
+                  Share to Showcase
                 </button>
               </div>
 
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => setShowShareModal(false)}
-                  className={`flex-1 py-2 px-4 ${theme === 'dark' ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-lg transition-colors`}
-                >
-                  Close
-                </button>
-                <a
-                  href={shareLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`flex-1 py-2 px-4 bg-gradient-to-r ${currentTheme.accentGradient} text-white rounded-lg hover:opacity-90 transition-all text-center flex items-center justify-center gap-2`}
-                >
-                  <LucideExternalLink className="w-4 h-4" />
-                  Open
-                </a>
-              </div>
+              {shareMode === "link" ? (
+                <>
+                  <p className={`${currentTheme.textSecondary} text-sm mb-4`}>
+                    Anyone with this link can view your model
+                  </p>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={shareLink}
+                      readOnly
+                      className={`flex-1 px-4 py-2 bg-gray-800 border border-white/10 rounded-lg ${currentTheme.text} text-sm`}
+                    />
+                    <button
+                      onClick={copyToClipboard}
+                      className={`px-4 py-2 rounded-lg transition-colors ${
+                        copied
+                          ? "bg-green-500 text-white"
+                          : `bg-gray-800 text-gray-300 hover:bg-gray-700`
+                      }`}
+                    >
+                      {copied ? (
+                        <LucideCheck className="w-5 h-5" />
+                      ) : (
+                        <LucideCopy className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={() => setShowShareModal(false)}
+                      className={`flex-1 py-2 px-4 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded-lg transition-colors`}
+                    >
+                      Close
+                    </button>
+                    <a
+                      href={shareLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex-1 py-2 px-4 bg-gradient-to-r ${currentTheme.accentGradient} text-white rounded-lg hover:opacity-90 transition-all text-center flex items-center justify-center gap-2`}
+                    >
+                      <LucideExternalLink className="w-4 h-4" />
+                      Open
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    <div>
+                      <label className={`text-sm ${currentTheme.textSecondary} mb-2 block`}>Title</label>
+                      <input
+                        type="text"
+                        value={shareTitle}
+                        onChange={(e) => setShareTitle(e.target.value)}
+                        placeholder="Name your model..."
+                        className={`w-full px-4 py-2.5 bg-gray-800 border border-white/10 rounded-lg ${currentTheme.text} text-sm focus:ring-1 focus:ring-current transition-colors`}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className={`text-sm ${currentTheme.textSecondary} mb-2 block`}>Description</label>
+                      <textarea
+                        value={shareDescription}
+                        onChange={(e) => setShareDescription(e.target.value)}
+                        placeholder="Describe your model..."
+                        rows={3}
+                        className={`w-full px-4 py-2.5 bg-gray-800 border border-white/10 rounded-lg ${currentTheme.text} text-sm resize-none focus:ring-1 focus:ring-current transition-colors`}
+                      />
+                    </div>
+
+                    <p className={`text-xs ${currentTheme.textMuted}`}>
+                      Your model will be visible to everyone on the Showcase page
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={() => setShowShareModal(false)}
+                      className={`flex-1 py-2 px-4 bg-gray-800 text-gray-300 hover:bg-gray-700 rounded-lg transition-colors`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleShareToShowcase}
+                      className={`flex-1 py-2 px-4 bg-gradient-to-r ${currentTheme.accentGradient} text-white rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2`}
+                    >
+                      <LucideShare2 className="w-4 h-4" />
+                      Share to Showcase
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           </div>
         )}

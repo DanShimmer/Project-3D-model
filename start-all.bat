@@ -8,12 +8,12 @@ echo.
 echo 🚀 Starting all services...
 echo.
 
-:: Khởi động AI Service
+:: Khởi động AI Service với Python 3.11 virtual environment
 echo 🤖 Starting AI Service (Port 8000)...
-start "AI Service" cmd /k "cd /d "%~dp0AI-service" && python app.py"
+start "AI Service" cmd /k "cd /d "%~dp0AI-service" && call venv311\Scripts\activate.bat && python app.py"
 
-:: Đợi 3 giây
-timeout /t 3 /nobreak > nul
+:: Đợi 5 giây (AI service cần thời gian load)
+timeout /t 5 /nobreak > nul
 
 :: Khởi động Backend
 echo ⚙️  Starting Backend Service (Port 5000)...

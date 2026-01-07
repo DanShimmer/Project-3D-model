@@ -8,7 +8,9 @@ export interface IModel extends Document {
   imageUrl?: string;
   modelUrl: string;
   thumbnailUrl?: string;
+  modelType?: string; // Demo model type: robot, sword, car, cat
   isPublic: boolean;
+  isDemo?: boolean;
   shareToken?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -23,7 +25,9 @@ const ModelSchema = new Schema<IModel>(
     imageUrl: { type: String },
     modelUrl: { type: String, required: true },
     thumbnailUrl: { type: String },
+    modelType: { type: String }, // Demo model type: robot, sword, car, cat
     isPublic: { type: Boolean, default: false },
+    isDemo: { type: Boolean, default: false },
     shareToken: { type: String },
   },
   { timestamps: true }

@@ -100,6 +100,10 @@ export const updateModel = async (req: Request, res: Response) => {
     if (thumbnailUrl !== undefined) model.thumbnailUrl = thumbnailUrl;
     if (isPublic !== undefined) model.isPublic = isPublic;
     
+    // Handle modelType for demo models
+    const { modelType } = req.body;
+    if (modelType !== undefined) (model as any).modelType = modelType;
+    
     await model.save();
     
     res.json({

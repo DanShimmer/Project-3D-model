@@ -45,6 +45,13 @@ export const deleteUser = async (userId) =>
     headers: authHeaders(),
   }).then(res => res.json());
 
+export const createUser = async (email, password, role) =>
+  fetch(`${API_URL}/users`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ email, password, role }),
+  }).then(res => res.json());
+
 // User models
 export const getUserModels = async (userId, page = 1, limit = 10) => {
   const params = new URLSearchParams({ page, limit });

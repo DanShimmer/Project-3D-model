@@ -41,3 +41,5 @@ AI-service/models/
 # Temporary files
 *.tmp
 *.temp
+
+AI-service/venv311/

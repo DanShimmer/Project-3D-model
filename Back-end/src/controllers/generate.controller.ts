@@ -22,6 +22,10 @@ type MulterRequest = Request & {
 // AI Service URL
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 
+// Demo mode - set to true to bypass AI service and return instant demo results
+// Enable this when AI service is too slow (CPU-only) or crashes due to low memory
+const DEMO_MODE = process.env.DEMO_MODE === "true" || true;
+
 interface GenerateJob {
   jobId: string;
   userId: string;
@@ -86,7 +90,47 @@ export const textTo3D = async (req: Request, res: Response) => {
 
     console.log(`📝 Text-to-3D Job created: ${jobId}`);
 
-    // Call AI Service
+    // Demo mode - bypass AI service and return instant demo results
+    if (DEMO_MODE) {
+      console.log(`🎭 Demo mode: Generating instant demo result`);
+      
+      job.status = "completed";
+      job.modelUrl = "/demo/model.glb"; // Demo model URL
+      job.imageUrl = "/demo/preview.png"; // Demo preview URL  
+      job.completedAt = new Date();
+
+      // Save to database
+      const newModel = new Model({
+        userId,
+        name: `${trimmedPrompt.slice(0, 50)}${trimmedPrompt.length > 50 ? '...' : ''}`,
+        type: "text-to-3d",
+        prompt: trimmedPrompt,
+        mode,
+        modelUrl: job.modelUrl,
+        thumbnailUrl: job.imageUrl,
+        isPublic: false,
+        isDemo: true // Mark as demo model
+      });
+      await newModel.save();
+
+      return res.json({
+        ok: true,
+        jobId,
+        isDemo: true,
+        model: {
+          _id: newModel._id,
+          name: newModel.name,
+          type: newModel.type,
+          prompt: newModel.prompt,
+          modelUrl: newModel.modelUrl,
+          thumbnailUrl: newModel.thumbnailUrl,
+          isDemo: true,
+          createdAt: newModel.createdAt
+        }
+      });
+    }
+
+    // Call AI Service (only when DEMO_MODE is false)
     job.status = "processing";
     
     try {
@@ -205,7 +249,44 @@ export const imageTo3D = async (req: MulterRequest, res: Response) => {
 
     console.log(`🖼️ Image-to-3D Job created: ${jobId}`);
 
-    // Prepare form data for AI Service
+    // Demo mode - bypass AI service and return instant demo results
+    if (DEMO_MODE) {
+      console.log(`🎭 Demo mode: Generating instant demo result for image`);
+      
+      job.status = "completed";
+      job.modelUrl = "/demo/model.glb"; // Demo model URL
+      job.imageUrl = "/demo/preview.png"; // Demo preview URL  
+      job.completedAt = new Date();
+
+      // Save to database
+      const newModel = new Model({
+        userId,
+        name: `Image to 3D - ${file.originalname}`,
+        type: "image-to-3d",
+        modelUrl: job.modelUrl,
+        thumbnailUrl: job.imageUrl,
+        isPublic: false,
+        isDemo: true // Mark as demo model
+      });
+      await newModel.save();
+
+      return res.json({
+        ok: true,
+        jobId,
+        isDemo: true,
+        model: {
+          _id: newModel._id,
+          name: newModel.name,
+          type: newModel.type,
+          modelUrl: newModel.modelUrl,
+          thumbnailUrl: newModel.thumbnailUrl,
+          isDemo: true,
+          createdAt: newModel.createdAt
+        }
+      });
+    }
+
+    // Prepare form data for AI Service (only when DEMO_MODE is false)
     const formData = new FormData();
     formData.append("image", file.buffer, {
       filename: file.originalname,

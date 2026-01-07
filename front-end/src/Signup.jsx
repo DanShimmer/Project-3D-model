@@ -252,7 +252,7 @@ export default function SignupPage() {
       <footer className={`border-t ${currentTheme.border} bg-transparent`}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-center">
           <div className={`text-sm ${currentTheme.textSecondary}`}>
-            © {new Date().getFullYear()} Polyva — All rights reserved.
+            © {new Date().getFullYear()} Polyva
           </div>
         </div>
       </footer>

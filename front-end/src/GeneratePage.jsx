@@ -28,11 +28,17 @@ import {
   MessageCircle,
   RotateCcw,
   Sun,
-  Moon
+  Moon,
+  Link as LinkIcon,
+  Copy,
+  Camera
 } from "lucide-react";
 import ModelViewer from "./Components/ModelViewer";
+import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
+import AvatarModal, { getAvatarById } from "./Components/AvatarModal";
 import { LogoIcon } from "./Components/Logo";
-import { genTextTo3D, genImageTo3D, checkAIHealth } from "./api/generate";
+import { genTextTo3D, genImageTo3D, checkAIHealth, updateModelType } from "./api/generate";
+import { updateProfile } from "./api/auth";
 import { useAuth } from "./contexts/AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
 
@@ -94,7 +100,7 @@ const SIDEBAR_TOOLS = [
 export default function GeneratePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAuthenticated, loading, logout } = useAuth();
+  const { user, isAuthenticated, loading, logout, updateUser, getToken } = useAuth();
   const { theme, toggleTheme, currentTheme } = useTheme();
   const canvasRef = useRef(null);
   
@@ -114,9 +120,41 @@ export default function GeneratePage() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareTitle, setShareTitle] = useState("");
   const [shareDescription, setShareDescription] = useState("");
+  const [shareMode, setShareMode] = useState("showcase"); // "showcase" | "link"
+  const [shareLink, setShareLink] = useState("");
+  const [copied, setCopied] = useState(false);
   const [activeSidebarTool, setActiveSidebarTool] = useState("generate");
   const [editingModel, setEditingModel] = useState(null);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
   
+  // Avatar functions
+  const handleAvatarChange = async (newAvatar) => {
+    const token = getToken();
+    if (!token) return;
+    const result = await updateProfile(token, { avatar: newAvatar });
+    if (result.user) {
+      updateUser({ ...user, avatar: newAvatar });
+    }
+  };
+
+  const getUserAvatar = () => {
+    if (user?.avatar) {
+      return getAvatarById(user.avatar);
+    }
+    return null;
+  };
+  
+  // Helper function to determine model type from prompt (same logic as MyStorage)
+  const getModelTypeFromPrompt = (prompt) => {
+    if (!prompt) return "robot";
+    const p = prompt.toLowerCase();
+    if (p.includes("sword") || p.includes("kiếm") || p.includes("blade")) return "sword";
+    if (p.includes("cat") || p.includes("mèo") || p.includes("kitten")) return "cat";
+    if (p.includes("car") || p.includes("xe") || p.includes("oto") || p.includes("vehicle")) return "car";
+    if (p.includes("robot") || p.includes("bot") || p.includes("droid")) return "robot";
+    return "robot";
+  };
+
   // Load model from navigation state (for editing from My Storage)
   useEffect(() => {
     const state = location.state;
@@ -134,16 +172,31 @@ export default function GeneratePage() {
         setPrompt(model.prompt);
       }
       
-      // Load the existing model into the viewer
-      if (model.modelUrl) {
+      // Determine modelType from prompt
+      const modelType = getModelTypeFromPrompt(model.prompt || model.name);
+      
+      // Load the existing model into the viewer with correct modelType
+      if (model.modelUrl || model.prompt) {
         setGeneratedModels([{
           id: model._id,
           modelUrl: model.modelUrl,
           thumbnailUrl: model.thumbnailUrl,
           name: model.name,
-          isExisting: true
+          modelType: modelType,
+          isDemo: true,
+          isExisting: true,
+          variant: 1
         }]);
-        setSelectedGeneratedModel(0);
+        setSelectedGeneratedModel({
+          id: model._id,
+          modelUrl: model.modelUrl,
+          thumbnailUrl: model.thumbnailUrl,
+          name: model.name,
+          modelType: modelType,
+          isDemo: true,
+          isExisting: true,
+          variant: 1
+        });
       }
       
       // Clear the state so it doesn't reload on navigation
@@ -270,16 +323,81 @@ export default function GeneratePage() {
     setSelectedGeneratedModel(null);
   };
   
-  // Simulate generating 4 model variants
-  const generateModelVariants = (baseModel) => {
-    // In real implementation, this would call the API to generate 4 variants
-    // For now, we simulate 4 slightly different models
-    return [
-      { ...baseModel, id: `${baseModel._id}-1`, variant: 1, selected: false },
-      { ...baseModel, id: `${baseModel._id}-2`, variant: 2, selected: false },
-      { ...baseModel, id: `${baseModel._id}-3`, variant: 3, selected: false },
-      { ...baseModel, id: `${baseModel._id}-4`, variant: 4, selected: false }
+  // Simulate generating 4 model variants (demo mode with actual 3D models)
+  const generateModelVariants = (baseModel, isImageMode = false) => {
+    let modelType = "robot"; // default
+    
+    // For image-to-3d mode, use the uploaded file name or default to "custom" type
+    if (isImageMode && uploadedFile) {
+      const fileName = uploadedFile.name.toLowerCase();
+      // Try to detect from filename
+      if (fileName.includes("sword") || fileName.includes("blade")) modelType = "sword";
+      else if (fileName.includes("cat") || fileName.includes("kitten")) modelType = "cat";
+      else if (fileName.includes("car") || fileName.includes("vehicle")) modelType = "car";
+      else if (fileName.includes("robot") || fileName.includes("bot")) modelType = "robot";
+      else {
+        // Rotate through demo models for variety in demo mode
+        const demoTypes = ["robot", "sword", "car", "cat"];
+        modelType = demoTypes[Math.floor(Math.random() * demoTypes.length)];
+      }
+    } else {
+      // Text-to-3D mode - detect from prompt
+      const promptLower = prompt.toLowerCase();
+      
+      for (const [key, type] of Object.entries(DEMO_MODEL_TYPES)) {
+        if (promptLower.includes(type) || key.toLowerCase().includes(promptLower.split(" ")[0])) {
+          modelType = type;
+          break;
+        }
+      }
+      
+      // Check specific keywords - order matters! Check 'cat' before 'car' since 'cat' could match 'car'
+      if (promptLower.includes("sword") || promptLower.includes("kiếm") || promptLower.includes("blade")) modelType = "sword";
+      else if (promptLower.includes("cat") || promptLower.includes("mèo") || promptLower.includes("kitten")) modelType = "cat";
+      else if (promptLower.includes("car") || promptLower.includes("xe") || promptLower.includes("oto") || promptLower.includes("vehicle")) modelType = "car";
+      else if (promptLower.includes("robot") || promptLower.includes("bot") || promptLower.includes("droid")) modelType = "robot";
+    }
+    
+    // Generate 4 demo variants with different model types
+    const variants = [
+      { 
+        ...baseModel, 
+        id: `${baseModel?._id || Date.now()}-1`, 
+        variant: 1, 
+        selected: false,
+        modelType: modelType,
+        isDemo: true,
+        name: `${prompt} - Variant 1`
+      },
+      { 
+        ...baseModel, 
+        id: `${baseModel?._id || Date.now()}-2`, 
+        variant: 2, 
+        selected: false,
+        modelType: modelType,
+        isDemo: true,
+        name: `${prompt} - Variant 2`
+      },
+      { 
+        ...baseModel, 
+        id: `${baseModel?._id || Date.now()}-3`, 
+        variant: 3, 
+        selected: false,
+        modelType: modelType,
+        isDemo: true,
+        name: `${prompt} - Variant 3`
+      },
+      { 
+        ...baseModel, 
+        id: `${baseModel?._id || Date.now()}-4`, 
+        variant: 4, 
+        selected: false,
+        modelType: modelType,
+        isDemo: true,
+        name: `${prompt} - Variant 4`
+      }
     ];
+    return variants;
   };
   
   // Handle generation
@@ -319,10 +437,15 @@ export default function GeneratePage() {
         setProgress(100);
         setGenerationStep("Complete!");
         
-        // Generate 4 variants
-        const variants = generateModelVariants(result.model);
+        // Generate 4 variants (text mode = false)
+        const variants = generateModelVariants(result.model, false);
         setGeneratedModels(variants);
         setSelectedGeneratedModel(variants[0]);
+        
+        // Update modelType in database
+        if (result.model?._id && variants[0]?.modelType) {
+          await updateModelType(result.model._id, variants[0].modelType);
+        }
         
       } else {
         if (!uploadedFile) {
@@ -330,7 +453,7 @@ export default function GeneratePage() {
         }
         
         setGenerationStep("Processing image...");
-        setProgress(10);
+        setProgress(10)
         
         const progressInterval = setInterval(() => {
           setProgress(prev => {
@@ -349,10 +472,15 @@ export default function GeneratePage() {
         setProgress(100);
         setGenerationStep("Complete!");
         
-        // Generate 4 variants
-        const variants = generateModelVariants(result.model);
+        // Generate 4 variants - pass true for image mode
+        const variants = generateModelVariants(result.model, true);
         setGeneratedModels(variants);
         setSelectedGeneratedModel(variants[0]);
+        
+        // Update modelType in database
+        if (result.model?._id && variants[0]?.modelType) {
+          await updateModelType(result.model._id, variants[0].modelType);
+        }
       }
       
     } catch (err) {
@@ -369,12 +497,89 @@ export default function GeneratePage() {
     handleGenerate();
   };
   
+  // Handle download selected model
+  const handleDownloadSelected = () => {
+    if (!selectedGeneratedModel) return;
+    
+    // For demo models, create a simple OBJ file
+    const modelName = selectedGeneratedModel.name || `${prompt}-variant-${selectedGeneratedModel.variant}`;
+    const safeFileName = modelName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    
+    // Create a simple OBJ content (placeholder for demo)
+    const objContent = `# 3D Model exported from Polyva
+# Model: ${modelName}
+# Generated: ${new Date().toISOString()}
+# 
+# This is a demo model. Actual AI-generated models will be exported as GLB/OBJ.
+# 
+# To open this file:
+# - Blender: File > Import > Wavefront (.obj)
+# - 3D Paint (Windows): Open in Paint 3D
+# - Other 3D software: Import OBJ file
+
+# Demo cube vertices
+v -0.5 -0.5 0.5
+v 0.5 -0.5 0.5
+v -0.5 0.5 0.5
+v 0.5 0.5 0.5
+v -0.5 0.5 -0.5
+v 0.5 0.5 -0.5
+v -0.5 -0.5 -0.5
+v 0.5 -0.5 -0.5
+
+# Texture coordinates
+vt 0 0
+vt 1 0
+vt 0 1
+vt 1 1
+
+# Normals
+vn 0 0 1
+vn 0 1 0
+vn 0 0 -1
+vn 0 -1 0
+vn 1 0 0
+vn -1 0 0
+
+# Faces
+f 1/1/1 2/2/1 4/4/1 3/3/1
+f 3/1/2 4/2/2 6/4/2 5/3/2
+f 5/4/3 6/3/3 8/1/3 7/2/3
+f 7/1/4 8/2/4 2/4/4 1/3/4
+f 2/1/5 8/2/5 6/4/5 4/3/5
+f 7/1/6 1/2/6 3/4/6 5/3/6
+`;
+    
+    // Create blob and download
+    const blob = new Blob([objContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeFileName}.obj`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  
   // Handle share
   const handleShare = () => {
     if (!selectedGeneratedModel) return;
     setShareTitle(selectedGeneratedModel.name || prompt || "Untitled Model");
     setShareDescription(selectedGeneratedModel.prompt || prompt || "");
+    // Generate share link
+    const shareId = `model-${Date.now()}`;
+    setShareLink(`${window.location.origin}/share/${shareId}`);
+    setShareMode("showcase");
+    setCopied(false);
     setShowShareModal(true);
+  };
+
+  // Copy link to clipboard
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(shareLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
   
   // Submit share to showcase
@@ -395,7 +600,11 @@ export default function GeneratePage() {
         authorId: user?._id,
         likes: 0,
         comments: [],
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        variant: selectedGeneratedModel.variant,
+        color: selectedGeneratedModel.color,
+        isDemo: selectedGeneratedModel.isDemo,
+        tags: ["ai-generated"]
       };
       
       existingShared.unshift(sharedModel);
@@ -508,24 +717,39 @@ export default function GeneratePage() {
               {user && (
                 <div className="relative group">
                   <button className={`flex items-center gap-2 p-1.5 rounded-full ${currentTheme.buttonSecondary} transition-colors`}>
-                    <div className={`w-7 h-7 bg-gradient-to-br ${currentTheme.accentGradient} rounded-full flex items-center justify-center text-white text-xs font-semibold`}>
-                      {(user.name || user.email)[0].toUpperCase()}
-                    </div>
+                    {/* Avatar - fixed gradient, not affected by theme */}
+                    {getUserAvatar() ? (
+                      <div className={`w-7 h-7 bg-gradient-to-br ${getUserAvatar().gradient} rounded-full flex items-center justify-center text-sm`}>
+                        {getUserAvatar().emoji}
+                      </div>
+                    ) : (
+                      <div className={`w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white text-xs font-semibold`}>
+                        {(user.name || user.email)[0].toUpperCase()}
+                      </div>
+                    )}
                   </button>
 
                   <div className={`opacity-0 invisible group-hover:visible group-hover:opacity-100 transition-all duration-200 absolute right-0 mt-2 w-48 bg-gray-900/95 backdrop-blur-xl border ${currentTheme.border} rounded-xl shadow-2xl overflow-hidden`}>
                     <div className={`px-4 py-3 border-b ${currentTheme.border}`}>
-                      <p className="text-sm font-medium truncate">{user.email}</p>
+                      <p className="text-sm font-medium text-white truncate">{user.email}</p>
                     </div>
                     <div className="py-2">
+                      {/* Change Avatar */}
+                      <button 
+                        onClick={() => setShowAvatarModal(true)} 
+                        className={`w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 hover:text-white`}
+                      >
+                        <Camera className="w-4 h-4" />
+                        Change Avatar
+                      </button>
                       {/* My Storage link - Hidden for admin */}
                       {!user.isAdmin && (
-                        <Link to="/my-storage" className={`flex items-center gap-3 px-4 py-2 text-sm ${currentTheme.textSecondary} hover:bg-white/5`}>
+                        <Link to="/my-storage" className={`flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 hover:text-white`}>
                           <Folder className="w-4 h-4" />
                           My Storage
                         </Link>
                       )}
-                      <Link to="/" className={`flex items-center gap-3 px-4 py-2 text-sm ${currentTheme.textSecondary} hover:bg-white/5`}>
+                      <Link to="/" className={`flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 hover:text-white`}>
                         <Home className="w-4 h-4" />
                         Home
                       </Link>
@@ -541,6 +765,17 @@ export default function GeneratePage() {
           </div>
         </div>
       </header>
+
+      {/* Avatar Modal */}
+      {user && (
+        <AvatarModal
+          isOpen={showAvatarModal}
+          onClose={() => setShowAvatarModal(false)}
+          currentAvatar={user.avatar}
+          onSave={handleAvatarChange}
+          userName={user.name || user.email}
+        />
+      )}
       
       {/* Main Layout */}
       <div className="flex h-screen pt-14">
@@ -842,29 +1077,30 @@ export default function GeneratePage() {
             </div>
             
             {/* Main Preview Area */}
-            <div className="flex-1 relative">
+            <div className="flex-1 flex flex-col relative overflow-y-auto">
               {generatedModels.length > 0 ? (
-                // 4-grid model view
-                <div className="h-full grid grid-cols-2 gap-1 p-1">
-                  {generatedModels.map((model, index) => (
-                    <motion.div
-                      key={model.id}
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: index * 0.1 }}
-                      onClick={() => setSelectedGeneratedModel(model)}
-                      className={`relative ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden cursor-pointer transition-all ${
-                        selectedGeneratedModel?.id === model.id
-                          ? `ring-2 ${theme === 'dark' ? 'ring-lime-500' : 'ring-cyan-500'}`
-                          : `hover:ring-1 ${theme === 'dark' ? 'hover:ring-white/20' : 'hover:ring-black/10'}`
-                      }`}
-                    >
-                      <ModelViewer
-                        modelUrl={model.modelUrl}
-                        className="w-full h-full min-h-[200px]"
-                        showControls={false}
-                        autoRotate={true}
-                      />
+                <>
+                  {/* 4-grid model view */}
+                  <div className="grid grid-cols-2 gap-1 p-1 min-h-0">
+                    {generatedModels.map((model, index) => (
+                      <motion.div
+                        key={model.id}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.1 }}
+                        onClick={() => setSelectedGeneratedModel(model)}
+                        className={`relative ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden cursor-pointer transition-all ${
+                          selectedGeneratedModel?.id === model.id
+                            ? `ring-2 ${theme === 'dark' ? 'ring-lime-500' : 'ring-cyan-500'}`
+                            : `hover:ring-1 ${theme === 'dark' ? 'hover:ring-white/20' : 'hover:ring-black/10'}`
+                        }`}
+                      >
+                        {/* Demo 3D Model Viewer */}
+                        <DemoModelPreview
+                          modelType={model.modelType || "robot"}
+                          className="w-full h-full min-h-[180px]"
+                          autoRotate={true}
+                        />
                       
                       {/* Variant label */}
                       <div className="absolute top-3 left-3">
@@ -896,6 +1132,41 @@ export default function GeneratePage() {
                     </motion.div>
                   ))}
                 </div>
+                
+                {/* Action buttons below 4 variants - centered */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className={`flex justify-center py-4 mb-4`}
+                >
+                  <div className={`flex items-center gap-4 px-6 py-3 ${theme === 'dark' ? 'bg-black/80' : 'bg-white/90'} backdrop-blur-xl rounded-2xl border ${currentTheme.border} shadow-2xl`}>
+                    <button
+                      onClick={handleDownloadSelected}
+                      disabled={!selectedGeneratedModel}
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                        selectedGeneratedModel
+                          ? `${currentTheme.accentBg} text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} shadow-lg ${theme === 'dark' ? 'shadow-lime-500/30' : 'shadow-cyan-500/30'}`
+                          : `${currentTheme.cardBg} ${currentTheme.textMuted} cursor-not-allowed`
+                      }`}
+                    >
+                      <Download size={18} />
+                      Download
+                    </button>
+                    
+                    <div className={`w-px h-8 ${currentTheme.border}`} />
+                    
+                    <button
+                      onClick={handleRetry}
+                      disabled={isGenerating}
+                      className={`flex items-center gap-2 px-5 py-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl text-sm font-medium ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
+                    >
+                      <RefreshCw size={18} className={isGenerating ? "animate-spin" : ""} />
+                      Retry
+                    </button>
+                  </div>
+                </motion.div>
+                </>
               ) : (
                 // Empty state
                 <div className="h-full flex items-center justify-center">
@@ -981,7 +1252,7 @@ export default function GeneratePage() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold flex items-center gap-2">
                   <Share2 className={currentTheme.accentColor} size={20} />
-                  Share to Showcase
+                  Share Model
                 </h2>
                 <button
                   onClick={() => setShowShareModal(false)}
@@ -991,45 +1262,121 @@ export default function GeneratePage() {
                 </button>
               </div>
               
-              <div className="space-y-4">
-                <div>
-                  <label className={`text-sm ${currentTheme.textSecondary} mb-2 block`}>Title</label>
-                  <input
-                    type="text"
-                    value={shareTitle}
-                    onChange={(e) => setShareTitle(e.target.value)}
-                    placeholder="Name your model..."
-                    className={`w-full px-4 py-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} ${theme === 'dark' ? 'placeholder-gray-500' : 'placeholder-gray-400'} ${theme === 'dark' ? 'focus:border-lime-500 focus:ring-lime-500' : 'focus:border-cyan-500 focus:ring-cyan-500'} focus:ring-1 transition-colors`}
-                  />
-                </div>
-                
-                <div>
-                  <label className={`text-sm ${currentTheme.textSecondary} mb-2 block`}>Description</label>
-                  <textarea
-                    value={shareDescription}
-                    onChange={(e) => setShareDescription(e.target.value)}
-                    placeholder="Describe your model..."
-                    rows={3}
-                    className={`w-full px-4 py-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} ${theme === 'dark' ? 'placeholder-gray-500' : 'placeholder-gray-400'} ${theme === 'dark' ? 'focus:border-lime-500 focus:ring-lime-500' : 'focus:border-cyan-500 focus:ring-cyan-500'} focus:ring-1 transition-colors resize-none`}
-                  />
-                </div>
-                
-                <div className="flex gap-3 pt-4">
-                  <button
-                    onClick={() => setShowShareModal(false)}
-                    className={`flex-1 py-3 border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} transition-colors`}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={submitShare}
-                    className={`flex-1 py-3 ${currentTheme.accentBg} rounded-xl text-white font-medium ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} transition-colors flex items-center justify-center gap-2`}
-                  >
-                    <Share2 size={18} />
-                    Share
-                  </button>
-                </div>
+              {/* Share mode tabs */}
+              <div className={`flex gap-2 mb-6 ${currentTheme.cardBg} rounded-xl p-1`}>
+                <button
+                  onClick={() => setShareMode("showcase")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    shareMode === "showcase"
+                      ? `${currentTheme.accentBg} text-white`
+                      : currentTheme.textSecondary
+                  }`}
+                >
+                  <Sparkles size={16} />
+                  Share to Showcase
+                </button>
+                <button
+                  onClick={() => setShareMode("link")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    shareMode === "link"
+                      ? `${currentTheme.accentBg} text-white`
+                      : currentTheme.textSecondary
+                  }`}
+                >
+                  <LinkIcon size={16} />
+                  Copy Link
+                </button>
               </div>
+              
+              {shareMode === "showcase" ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className={`text-sm ${currentTheme.textSecondary} mb-2 block`}>Title</label>
+                    <input
+                      type="text"
+                      value={shareTitle}
+                      onChange={(e) => setShareTitle(e.target.value)}
+                      placeholder="Name your model..."
+                      className={`w-full px-4 py-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} ${theme === 'dark' ? 'placeholder-gray-500' : 'placeholder-gray-400'} ${theme === 'dark' ? 'focus:border-lime-500 focus:ring-lime-500' : 'focus:border-cyan-500 focus:ring-cyan-500'} focus:ring-1 transition-colors`}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className={`text-sm ${currentTheme.textSecondary} mb-2 block`}>Description</label>
+                    <textarea
+                      value={shareDescription}
+                      onChange={(e) => setShareDescription(e.target.value)}
+                      placeholder="Describe your model..."
+                      rows={3}
+                      className={`w-full px-4 py-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} ${theme === 'dark' ? 'placeholder-gray-500' : 'placeholder-gray-400'} ${theme === 'dark' ? 'focus:border-lime-500 focus:ring-lime-500' : 'focus:border-cyan-500 focus:ring-cyan-500'} focus:ring-1 transition-colors resize-none`}
+                    />
+                  </div>
+                  
+                  <p className={`text-xs ${currentTheme.textMuted}`}>
+                    Your model will be visible to everyone on the Showcase page
+                  </p>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => setShowShareModal(false)}
+                      className={`flex-1 py-3 border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} transition-colors`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={submitShare}
+                      className={`flex-1 py-3 ${currentTheme.accentBg} rounded-xl text-white font-medium ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} transition-colors flex items-center justify-center gap-2`}
+                    >
+                      <Share2 size={18} />
+                      Share to Showcase
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className={`${currentTheme.textSecondary} text-sm`}>
+                    Copy the link below to share your model with others
+                  </p>
+                  
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={shareLink}
+                      readOnly
+                      className={`flex-1 px-4 py-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.text} text-sm`}
+                    />
+                    <button
+                      onClick={copyToClipboard}
+                      className={`px-4 py-3 rounded-xl transition-colors flex items-center gap-2 ${
+                        copied
+                          ? "bg-green-500 text-white"
+                          : `${currentTheme.accentBg} text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'}`
+                      }`}
+                    >
+                      {copied ? (
+                        <>
+                          <Check size={18} />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Download size={18} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => setShowShareModal(false)}
+                      className={`flex-1 py-3 border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} transition-colors`}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

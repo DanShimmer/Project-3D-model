@@ -3,6 +3,7 @@ AI Service Flask API
 Handles Text-to-3D and Image-to-3D requests
 """
 import os
+import sys
 import uuid
 import time
 import traceback
@@ -12,6 +13,11 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from PIL import Image
 import io
+
+# Fix encoding issues on Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 from config import (
     HOST, PORT, DEBUG, 

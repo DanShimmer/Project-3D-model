@@ -9,6 +9,7 @@ import {
   getUserModels,
   deleteModelByAdmin,
   getDashboardStats,
+  createUser,
 } from "../controllers/admin.controller";
 
 const router = express.Router();
@@ -22,6 +23,7 @@ router.get("/stats", getDashboardStats);
 
 // User management
 router.get("/users", getAllUsers);
+router.post("/users", createUser);
 router.get("/users/:userId", getUserById);
 router.put("/users/:userId", updateUser);
 router.put("/users/:userId/toggle-block", toggleBlockUser);
