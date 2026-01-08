@@ -100,7 +100,7 @@ export default function AvatarModal({ isOpen, onClose, currentAvatar, onSave, us
                       }`}
                     >
                       {avatar.emoji}
-                      {selectedAvatar === avatar.id && (
+                      {selectedAvatar === avatar.id && ( 
                         <motion.div
                           initial={{ scale: 0 }}
                           animate={{ scale: 1 }}
@@ -138,10 +138,10 @@ export default function AvatarModal({ isOpen, onClose, currentAvatar, onSave, us
   );
 }
 
-// Export avatar options for use in other components
+
 export { AVATAR_OPTIONS };
 
-// Helper function to get avatar style by ID
+
 export function getAvatarById(avatarId) {
   return AVATAR_OPTIONS.find(a => a.id === avatarId) || AVATAR_OPTIONS[0];
 }
