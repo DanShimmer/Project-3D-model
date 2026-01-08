@@ -5,6 +5,7 @@ import {
   Type, 
   Image, 
   Upload, 
+  UploadCloud,
   Sparkles, 
   Loader2,
   Box,
@@ -14,6 +15,7 @@ import {
   X,
   Home,
   Folder,
+  Save,
   Share2,
   RefreshCw,
   Download,
@@ -31,7 +33,9 @@ import {
   Moon,
   Link as LinkIcon,
   Copy,
-  Camera
+  Camera,
+  Trash2,
+  Edit3
 } from "lucide-react";
 import ModelViewer from "./Components/ModelViewer";
 import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
@@ -88,9 +92,13 @@ const PROMPT_SUGGESTIONS = [
   "A low-poly tree for games"
 ];
 
+// Allowed 3D model file extensions
+const ALLOWED_3D_EXTENSIONS = ['.glb', '.fbx', '.obj', '.usdz', '.stl', '.blend', '.3mf'];
+
 // Sidebar tools (Phase 2 features)
 const SIDEBAR_TOOLS = [
   { id: "generate", icon: Sparkles, label: "Generate", active: true },
+  { id: "upload", icon: UploadCloud, label: "Upload", active: true },
   { id: "layers", icon: Layers, label: "Layers", disabled: true },
   { id: "texture", icon: Palette, label: "Texture", disabled: true },
   { id: "animate", icon: Film, label: "Animation", disabled: true },
@@ -126,6 +134,10 @@ export default function GeneratePage() {
   const [activeSidebarTool, setActiveSidebarTool] = useState("generate");
   const [editingModel, setEditingModel] = useState(null);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [uploaded3DModel, setUploaded3DModel] = useState(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadingModel, setUploadingModel] = useState(false);
+  const modelUploadRef = useRef(null);
   
   // Avatar functions
   const handleAvatarChange = async (newAvatar) => {
@@ -321,6 +333,84 @@ export default function GeneratePage() {
     setError(null);
     setGeneratedModels([]);
     setSelectedGeneratedModel(null);
+  };
+
+  // Handle 3D model file upload
+  const handle3DModelUpload = (file) => {
+    if (!file) return;
+    
+    const fileName = file.name.toLowerCase();
+    const fileExtension = '.' + fileName.split('.').pop();
+    
+    if (!ALLOWED_3D_EXTENSIONS.includes(fileExtension)) {
+      setError(`Invalid file type. Allowed formats: ${ALLOWED_3D_EXTENSIONS.join(', ')}`);
+      return;
+    }
+    
+    if (file.size > 100 * 1024 * 1024) { // 100MB limit for 3D models
+      setError("File too large. Maximum size is 100MB.");
+      return;
+    }
+    
+    setUploadingModel(true);
+    setError(null);
+    
+    // Create object URL for the uploaded file
+    const modelUrl = URL.createObjectURL(file);
+    const modelName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+    
+    // Simulate upload delay
+    setTimeout(() => {
+      const uploadedModel = {
+        id: `uploaded-${Date.now()}`,
+        modelUrl: modelUrl,
+        name: modelName,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: fileExtension,
+        modelType: "uploaded",
+        isDemo: false,
+        isUploaded: true,
+        variant: 1,
+        uploadedAt: new Date().toISOString()
+      };
+      
+      setUploaded3DModel(uploadedModel);
+      setGeneratedModels([uploadedModel]);
+      setSelectedGeneratedModel(uploadedModel);
+      setUploadingModel(false);
+      setShowUploadModal(false);
+      setActiveSidebarTool("generate");
+    }, 1000);
+  };
+
+  // Handle save uploaded model to storage
+  const handleSaveToStorage = async () => {
+    if (!selectedGeneratedModel) return;
+    
+    try {
+      // Get existing models from localStorage
+      const existingModels = JSON.parse(localStorage.getItem("pv_my_models") || "[]");
+      
+      const savedModel = {
+        id: Date.now(),
+        name: selectedGeneratedModel.name || "Uploaded Model",
+        modelUrl: selectedGeneratedModel.modelUrl,
+        thumbnailUrl: null,
+        author: user?.name || user?.email || "Anonymous",
+        authorId: user?._id,
+        isUploaded: selectedGeneratedModel.isUploaded || false,
+        fileType: selectedGeneratedModel.fileType,
+        createdAt: new Date().toISOString()
+      };
+      
+      existingModels.unshift(savedModel);
+      localStorage.setItem("pv_my_models", JSON.stringify(existingModels));
+      
+      alert("Model saved to My Storage!");
+    } catch (err) {
+      alert("An error occurred while saving");
+    }
   };
   
   // Simulate generating 4 model variants (demo mode with actual 3D models)
@@ -787,6 +877,8 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
               onClick={() => {
                 if (tool.id === "share" && selectedGeneratedModel) {
                   handleShare();
+                } else if (tool.id === "upload") {
+                  setShowUploadModal(true);
                 } else if (!tool.disabled) {
                   setActiveSidebarTool(tool.id);
                 }
@@ -795,7 +887,7 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
               className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
                 tool.disabled 
                   ? "opacity-30 cursor-not-allowed"
-                  : activeSidebarTool === tool.id || (tool.id === "share" && selectedGeneratedModel)
+                  : activeSidebarTool === tool.id || (tool.id === "share" && selectedGeneratedModel) || (tool.id === "upload" && showUploadModal)
                     ? `${theme === 'dark' ? 'bg-lime-500/20 border-lime-500/30' : 'bg-cyan-500/20 border-cyan-500/30'} ${currentTheme.accentColor} border`
                     : `${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${currentTheme.textSecondary} hover:${currentTheme.text}`
               }`}
@@ -1053,24 +1145,40 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                 )}
               </div>
               
-              {/* Action buttons when model is generated */}
+              {/* Action buttons when model is generated - using icons only */}
               {generatedModels.length > 0 && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={handleSaveToStorage}
+                    disabled={!selectedGeneratedModel}
+                    title="Save to Storage"
+                    className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
+                  >
+                    <Save size={18} />
+                  </button>
+                  <button
+                    onClick={handleDownloadSelected}
+                    disabled={!selectedGeneratedModel}
+                    title="Download"
+                    className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
+                  >
+                    <Download size={18} />
+                  </button>
                   <button
                     onClick={handleRetry}
-                    disabled={isGenerating}
-                    className={`flex items-center gap-2 px-4 py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg text-sm ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
+                    disabled={isGenerating || selectedGeneratedModel?.isUploaded}
+                    title="Retry with AI"
+                    className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
                   >
-                    <RotateCcw size={16} />
-                    Retry
+                    <RotateCcw size={18} className={isGenerating ? "animate-spin" : ""} />
                   </button>
                   <button
                     onClick={handleShare}
                     disabled={!selectedGeneratedModel}
-                    className={`flex items-center gap-2 px-4 py-2 ${currentTheme.accentBg} rounded-lg text-sm text-white font-medium ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} transition-all disabled:opacity-50`}
+                    title="Share"
+                    className={`p-2 ${currentTheme.accentBg} rounded-lg text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} transition-all disabled:opacity-50`}
                   >
-                    <Share2 size={16} />
-                    Share
+                    <Share2 size={18} />
                   </button>
                 </div>
               )}
@@ -1133,36 +1241,71 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                   ))}
                 </div>
                 
-                {/* Action buttons below 4 variants - centered */}
+                {/* Action buttons below 4 variants - using icons to save space */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.4 }}
                   className={`flex justify-center py-4 mb-4`}
                 >
-                  <div className={`flex items-center gap-4 px-6 py-3 ${theme === 'dark' ? 'bg-black/80' : 'bg-white/90'} backdrop-blur-xl rounded-2xl border ${currentTheme.border} shadow-2xl`}>
+                  <div className={`flex items-center gap-2 px-4 py-2.5 ${theme === 'dark' ? 'bg-black/80' : 'bg-white/90'} backdrop-blur-xl rounded-2xl border ${currentTheme.border} shadow-2xl`}>
+                    {/* Save to Storage */}
+                    <button
+                      onClick={handleSaveToStorage}
+                      disabled={!selectedGeneratedModel}
+                      title="Save to Storage"
+                      className={`p-2.5 rounded-xl transition-all ${
+                        selectedGeneratedModel
+                          ? `${currentTheme.cardBg} border ${currentTheme.border} ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
+                          : `${currentTheme.cardBg} ${currentTheme.textMuted} cursor-not-allowed`
+                      }`}
+                    >
+                      <Save size={20} />
+                    </button>
+                    
+                    {/* Download */}
                     <button
                       onClick={handleDownloadSelected}
                       disabled={!selectedGeneratedModel}
-                      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      title="Download Model"
+                      className={`p-2.5 rounded-xl transition-all ${
                         selectedGeneratedModel
                           ? `${currentTheme.accentBg} text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} shadow-lg ${theme === 'dark' ? 'shadow-lime-500/30' : 'shadow-cyan-500/30'}`
                           : `${currentTheme.cardBg} ${currentTheme.textMuted} cursor-not-allowed`
                       }`}
                     >
-                      <Download size={18} />
-                      Download
+                      <Download size={20} />
                     </button>
                     
                     <div className={`w-px h-8 ${currentTheme.border}`} />
                     
+                    {/* Retry with AI - disabled for uploaded models */}
                     <button
                       onClick={handleRetry}
-                      disabled={isGenerating}
-                      className={`flex items-center gap-2 px-5 py-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl text-sm font-medium ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
+                      disabled={isGenerating || selectedGeneratedModel?.isUploaded}
+                      title={selectedGeneratedModel?.isUploaded ? "Cannot retry uploaded models" : "Retry with AI"}
+                      className={`p-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
                     >
-                      <RefreshCw size={18} className={isGenerating ? "animate-spin" : ""} />
-                      Retry
+                      <RefreshCw size={20} className={isGenerating ? "animate-spin" : ""} />
+                    </button>
+                    
+                    {/* Share */}
+                    <button
+                      onClick={handleShare}
+                      disabled={!selectedGeneratedModel}
+                      title="Share Model"
+                      className={`p-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
+                    >
+                      <Share2 size={20} />
+                    </button>
+                    
+                    {/* Edit - Phase 2 placeholder */}
+                    <button
+                      disabled={true}
+                      title="Edit Model (Coming in Phase 2)"
+                      className={`p-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textMuted} cursor-not-allowed opacity-50`}
+                    >
+                      <Edit3 size={20} />
                     </button>
                   </div>
                 </motion.div>
@@ -1209,17 +1352,39 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="font-medium text-sm">{selectedGeneratedModel.name || "Generated Model"}</h3>
+                    <h3 className="font-medium text-sm">
+                      {selectedGeneratedModel.name || "Generated Model"}
+                      {selectedGeneratedModel.isUploaded && (
+                        <span className={`ml-2 text-xs px-2 py-0.5 rounded ${theme === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600'}`}>
+                          Uploaded
+                        </span>
+                      )}
+                    </h3>
                     <p className={`text-xs ${currentTheme.textMuted} mt-1`}>
-                      {selectedGeneratedModel.prompt || prompt}
+                      {selectedGeneratedModel.isUploaded 
+                        ? `${selectedGeneratedModel.fileType?.toUpperCase()} • ${(selectedGeneratedModel.fileSize / 1024 / 1024).toFixed(2)} MB`
+                        : (selectedGeneratedModel.prompt || prompt)
+                      }
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <button className={`p-2 ${currentTheme.cardBg} rounded-lg ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-colors`}>
+                  <div className="flex gap-1">
+                    <button 
+                      onClick={handleSaveToStorage}
+                      title="Save to Storage"
+                      className={`p-2 ${currentTheme.cardBg} rounded-lg ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-colors`}
+                    >
+                      <Save size={18} className={currentTheme.textSecondary} />
+                    </button>
+                    <button 
+                      onClick={handleDownloadSelected}
+                      title="Download"
+                      className={`p-2 ${currentTheme.cardBg} rounded-lg ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-colors`}
+                    >
                       <Download size={18} className={currentTheme.textSecondary} />
                     </button>
                     <button 
                       onClick={handleShare}
+                      title="Share"
                       className={`p-2 ${theme === 'dark' ? 'bg-lime-500/20 hover:bg-lime-500/30' : 'bg-cyan-500/20 hover:bg-cyan-500/30'} rounded-lg transition-colors`}
                     >
                       <Share2 size={18} className={currentTheme.accentColor} />
@@ -1377,6 +1542,127 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                   </div>
                 </div>
               )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Upload 3D Model Modal */}
+      <AnimatePresence>
+        {showUploadModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className={`fixed inset-0 ${theme === 'dark' ? 'bg-black/80' : 'bg-black/50'} backdrop-blur-sm z-50 flex items-center justify-center p-4`}
+            onClick={() => !uploadingModel && setShowUploadModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-md bg-gray-900 border ${currentTheme.border} rounded-2xl p-6`}
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <UploadCloud className={currentTheme.accentColor} size={20} />
+                  Upload 3D Model
+                </h2>
+                <button
+                  onClick={() => !uploadingModel && setShowUploadModal(false)}
+                  disabled={uploadingModel}
+                  className={`p-2 ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} rounded-lg transition-colors disabled:opacity-50`}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              {/* Hidden file input */}
+              <input
+                ref={modelUploadRef}
+                type="file"
+                accept=".glb,.fbx,.obj,.usdz,.stl,.blend,.3mf"
+                onChange={(e) => handle3DModelUpload(e.target.files[0])}
+                className="hidden"
+                id="model3DUpload"
+              />
+              
+              {/* Upload area */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.add(theme === 'dark' ? 'border-lime-500' : 'border-cyan-500');
+                }}
+                onDragLeave={(e) => {
+                  e.currentTarget.classList.remove(theme === 'dark' ? 'border-lime-500' : 'border-cyan-500');
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.remove(theme === 'dark' ? 'border-lime-500' : 'border-cyan-500');
+                  const files = Array.from(e.dataTransfer.files);
+                  if (files.length > 0) {
+                    handle3DModelUpload(files[0]);
+                  }
+                }}
+                onClick={() => modelUploadRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all ${currentTheme.border} ${theme === 'dark' ? 'hover:border-lime-500/50 hover:bg-lime-500/5' : 'hover:border-cyan-500/50 hover:bg-cyan-500/5'}`}
+              >
+                {uploadingModel ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className={`w-12 h-12 ${currentTheme.accentColor} animate-spin`} />
+                    <p className={`${currentTheme.textSecondary} text-sm`}>Processing model...</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className={`p-4 rounded-full ${currentTheme.cardBg} border ${currentTheme.border}`}>
+                      <UploadCloud size={32} className={currentTheme.accentColor} />
+                    </div>
+                    <div className="text-center">
+                      <p className={`${currentTheme.textSecondary} text-sm mb-1`}>
+                        Drag & drop your 3D model
+                      </p>
+                      <p className={`text-xs ${currentTheme.textMuted}`}>
+                        or click to select file
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {/* Supported formats */}
+              <div className="mt-4">
+                <p className={`text-xs ${currentTheme.textMuted} mb-2`}>Supported formats:</p>
+                <div className="flex flex-wrap gap-2">
+                  {ALLOWED_3D_EXTENSIONS.map((ext) => (
+                    <span
+                      key={ext}
+                      className={`px-2 py-1 text-xs rounded ${currentTheme.cardBg} border ${currentTheme.border} ${currentTheme.textSecondary}`}
+                    >
+                      {ext}
+                    </span>
+                  ))}
+                </div>
+                <p className={`text-xs ${currentTheme.textMuted} mt-2`}>Maximum file size: 100MB</p>
+              </div>
+              
+              {/* Error message in modal */}
+              {error && (
+                <div className="mt-4 bg-red-900/30 border border-red-500/50 rounded-lg p-3 text-red-400 text-xs">
+                  {error}
+                </div>
+              )}
+              
+              {/* Cancel button */}
+              <div className="flex gap-3 pt-4 mt-4 border-t border-white/10">
+                <button
+                  onClick={() => setShowUploadModal(false)}
+                  disabled={uploadingModel}
+                  className={`flex-1 py-3 border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} transition-colors disabled:opacity-50`}
+                >
+                  Cancel
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
