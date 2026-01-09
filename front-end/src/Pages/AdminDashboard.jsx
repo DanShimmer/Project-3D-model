@@ -21,11 +21,13 @@ import {
 } from "lucide-react";
 import { getAvatarById } from "../Components/AvatarModal";
 import { createUser } from "../api/admin";
+import { useAuth } from "../contexts/AuthContext";
 
 const API_URL = "http://localhost:5000/api";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const { user: authUser, logout: authLogout, isAdmin, isAuthenticated, getToken: authGetToken } = useAuth();
   const [user, setUser] = useState(null);
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -43,22 +45,20 @@ export default function AdminDashboard() {
   const [addUserForm, setAddUserForm] = useState({ email: "", password: "", role: "user" });
   const [actionLoading, setActionLoading] = useState(false);
 
-  const getToken = () => localStorage.getItem("pv_token");
+  const getToken = () => authGetToken() || localStorage.getItem("pv_token");
 
   // Check admin auth
   useEffect(() => {
-    const storedUser = localStorage.getItem("pv_user");
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      if (!parsedUser.isAdmin) {
+    if (!isAuthenticated || !isAdmin) {
+      if (!isAuthenticated) {
+        navigate("/login");
+      } else {
         navigate("/");
-        return;
       }
-      setUser(parsedUser);
-    } else {
-      navigate("/login");
+      return;
     }
-  }, [navigate]);
+    setUser(authUser);
+  }, [isAuthenticated, isAdmin, authUser, navigate]);
 
   // Fetch dashboard stats
   const fetchStats = async () => {
@@ -244,9 +244,9 @@ export default function AdminDashboard() {
 
   // Handle logout - fully clears auth state and redirects to home
   const handleLogout = () => {
-    // Clear all authentication data
-    localStorage.removeItem("pv_token");
-    localStorage.removeItem("pv_user");
+    // Use AuthContext logout to properly clear state
+    authLogout();
+    // Also clear any admin-specific tokens
     localStorage.removeItem("pv_admin_token");
     // Redirect to home page
     navigate("/");

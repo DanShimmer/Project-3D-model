@@ -1,0 +1,350 @@
+/* ========================================
+   Polyva 3D - Desktop App Specific Styles
+   ======================================== */
+
+/* Electron App Detection */
+.electron-app {
+  /* Prevent text selection on titlebar and controls */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Custom scrollbar for desktop */
+.electron-app ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.electron-app ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+.electron-app ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.electron-app ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Light theme scrollbar */
+.electron-app.light-theme ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.electron-app.light-theme ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.electron-app.light-theme ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* ========================================
+   Responsive Breakpoints for Desktop
+   ======================================== */
+
+/* Compact mode (small window) */
+@media (max-width: 1200px) {
+  .sidebar-expanded {
+    width: 200px !important;
+  }
+  
+  .panel-width {
+    width: 280px !important;
+  }
+  
+  .model-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Medium window */
+@media (min-width: 1201px) and (max-width: 1600px) {
+  .sidebar-expanded {
+    width: 240px;
+  }
+  
+  .panel-width {
+    width: 320px;
+  }
+  
+  .model-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Large window / Maximized */
+@media (min-width: 1601px) {
+  .sidebar-expanded {
+    width: 280px;
+  }
+  
+  .panel-width {
+    width: 360px;
+  }
+  
+  .model-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ========================================
+   Desktop-specific UI adjustments
+   ======================================== */
+
+/* Window draggable regions */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Titlebar offset for content */
+.titlebar-offset {
+  padding-top: 32px; /* Height of custom titlebar */
+}
+
+/* Desktop button hover effects */
+.desktop-button {
+  transition: all 0.15s ease;
+}
+
+.desktop-button:hover {
+  transform: translateY(-1px);
+}
+
+.desktop-button:active {
+  transform: translateY(0);
+}
+
+/* Focus rings for keyboard navigation */
+.electron-app *:focus-visible {
+  outline: 2px solid #84cc16;
+  outline-offset: 2px;
+}
+
+.electron-app.light-theme *:focus-visible {
+  outline-color: #06b6d4;
+}
+
+/* ========================================
+   Desktop Panel Transitions
+   ======================================== */
+
+.panel-slide-right {
+  animation: slideRight 0.2s ease-out;
+}
+
+.panel-slide-left {
+  animation: slideLeft 0.2s ease-out;
+}
+
+@keyframes slideRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ========================================
+   Model Viewer Desktop Optimizations
+   ======================================== */
+
+.model-viewer-container {
+  /* Better rendering for 3D content */
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* GPU acceleration hint */
+.gpu-accelerated {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* ========================================
+   Desktop Context Menu Styles
+   ======================================== */
+
+.desktop-context-menu {
+  position: fixed;
+  background: rgba(26, 26, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  z-index: 9999;
+}
+
+.desktop-context-menu-item {
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  transition: background 0.1s;
+}
+
+.desktop-context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.desktop-context-menu-item.danger {
+  color: #ef4444;
+}
+
+.desktop-context-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.desktop-context-menu-separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 0;
+}
+
+/* Light theme context menu */
+.light-theme .desktop-context-menu {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.light-theme .desktop-context-menu-item {
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.light-theme .desktop-context-menu-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light-theme .desktop-context-menu-separator {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* ========================================
+   Desktop Notification Toast
+   ======================================== */
+
+.desktop-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  background: rgba(26, 26, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: toastIn 0.3s ease-out;
+}
+
+@keyframes toastIn {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.desktop-toast.success {
+  border-left: 3px solid #84cc16;
+}
+
+.desktop-toast.error {
+  border-left: 3px solid #ef4444;
+}
+
+.desktop-toast.info {
+  border-left: 3px solid #3b82f6;
+}
+
+.desktop-toast.warning {
+  border-left: 3px solid #f59e0b;
+}
+
+/* Light theme toast */
+.light-theme .desktop-toast {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* ========================================
+   High DPI / Retina Display Support
+   ======================================== */
+
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .model-viewer-container canvas {
+    image-rendering: -webkit-optimize-contrast;
+  }
+  
+  /* Sharper icons */
+  svg {
+    shape-rendering: geometricPrecision;
+  }
+}
+
+/* ========================================
+   Reduced Motion Preferences
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .electron-app * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ========================================
+   Print Styles (for screenshot/export)
+   ======================================== */
+
+@media print {
+  .electron-titlebar,
+  .sidebar,
+  .floating-panel {
+    display: none !important;
+  }
+  
+  .model-viewer-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+}

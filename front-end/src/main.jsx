@@ -1,8 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, createHashRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { ElectronProvider, isElectron } from "./utils/electron";
 import Landpage from "./Landpage";
 import Signup from "./Signup";
 import Login from "./Login";
@@ -17,9 +18,11 @@ import HelpCenter from "./Pages/HelpCenter";
 import Contact from "./Pages/Contact";
 import AdminDashboard from "./Pages/AdminDashboard";
 import MyStorage from "./Pages/MyStorage";
+import DownloadApp from "./Pages/DownloadApp";
 import "./index.css";
 
-const router = createBrowserRouter([
+// Route definitions
+const routes = [
   {
     path: "/",
     element: <Landpage />
@@ -83,19 +86,29 @@ const router = createBrowserRouter([
   {
     path: "/my-storage",
     element: <MyStorage />
+  },
+  {
+    path: "/download",
+    element: <DownloadApp />
   }
-]);
+];
+
+// Use HashRouter for Electron (file:// protocol), BrowserRouter for web
+const createRouter = isElectron() ? createHashRouter : createBrowserRouter;
+const router = createRouter(routes);
 
 const rootEl = document.getElementById("root");
 if (rootEl) {
   const root = createRoot(rootEl);
   root.render(
     <React.StrictMode>
-      <ThemeProvider>
-        <AuthProvider>
-          <RouterProvider router={router} />
-        </AuthProvider>
-      </ThemeProvider>
+      <ElectronProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <RouterProvider router={router} />
+          </AuthProvider>
+        </ThemeProvider>
+      </ElectronProvider>
     </React.StrictMode>
   );
 }

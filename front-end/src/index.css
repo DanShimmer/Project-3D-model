@@ -4,6 +4,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Desktop App Styles */
+@import './styles/desktop.css';
+
 /* Theme transition */
 * {
   transition-property: background-color, border-color, color;

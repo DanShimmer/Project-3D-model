@@ -9,6 +9,7 @@ export interface IModel extends Document {
   modelUrl: string;
   thumbnailUrl?: string;
   modelType?: string; // Demo model type: robot, sword, car, cat
+  variant?: number; // Selected variant (1-4)
   isPublic: boolean;
   isDemo?: boolean;
   shareToken?: string;
@@ -26,6 +27,7 @@ const ModelSchema = new Schema<IModel>(
     modelUrl: { type: String, required: true },
     thumbnailUrl: { type: String },
     modelType: { type: String }, // Demo model type: robot, sword, car, cat
+    variant: { type: Number, min: 1, max: 4 }, // Selected variant (1-4)
     isPublic: { type: Boolean, default: false },
     isDemo: { type: Boolean, default: false },
     shareToken: { type: String },

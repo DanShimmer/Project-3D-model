@@ -1,18 +1,158 @@
 {
-  "name": "front-end",
+  "name": "polyva-3d",
+  "productName": "Polyva 3D",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "AI-powered 3D model generation desktop application",
+  "main": "electron/main.js",
+  "homepage": "./",
+  "author": {
+    "name": "Polyva Team",
+    "email": "team@polyva.io"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/polyva/polyva-3d"
+  },
   "scripts": {
     "dev": "vite",
+    "dev:electron": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "start": "vite",
     "build": "vite build",
+    "build:electron": "npm run build && electron-builder",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux",
     "preview": "vite preview",
+    "electron": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "build": {
+    "appId": "io.polyva.polyva3d",
+    "productName": "Polyva 3D",
+    "copyright": "Copyright © 2024-2026 Polyva Team",
+    "asar": true,
+    "compression": "maximum",
+    "directories": {
+      "output": "release",
+      "buildResources": "public"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "public/",
+        "to": "public/",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}",
+      "publisherName": "Polyva Team"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Polyva 3D",
+      "include": "electron/installer.nsh"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "public/icon.icns",
+      "category": "public.app-category.graphics-design",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "electron/entitlements.mac.plist",
+      "entitlementsInherit": "electron/entitlements.mac.plist"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        },
+        {
+          "target": "rpm",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icons",
+      "category": "Graphics",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "synopsis": "AI-powered 3D model generation",
+      "description": "Create stunning 3D models from text or images using AI"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "polyva",
+      "repo": "polyva-3d",
+      "releaseType": "release"
+    }
+  },
+  "keywords": [
+    "3d",
+    "ai",
+    "model",
+    "generation",
+    "electron",
+    "desktop"
+  ],
   "dependencies": {
     "@react-three/drei": "^9.92.7",
     "@react-three/fiber": "^8.15.12",
@@ -30,9 +170,15 @@
     "@types/three": "^0.160.0",
     "@vitejs/plugin-react": "^4.1.0",
     "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "electron-log": "^5.0.3",
+    "electron-updater": "^6.1.7",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5",
     "typescript": "^5.9.3",
-    "vite": "^4.5.0"
+    "vite": "^4.5.0",
+    "wait-on": "^7.2.0"
   }
 }

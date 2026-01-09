@@ -35,18 +35,40 @@ import {
   Copy,
   Camera,
   Trash2,
-  Edit3
+  Edit3,
+  User,
+  Play
 } from "lucide-react";
 import ModelViewer from "./Components/ModelViewer";
 import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
 import AvatarModal, { getAvatarById } from "./Components/AvatarModal";
 import { LogoIcon } from "./Components/Logo";
-import { genTextTo3D, genImageTo3D, checkAIHealth, updateModelType } from "./api/generate";
+import { genTextTo3D, genImageTo3D, checkAIHealth, updateModelType, updateModelVariant } from "./api/generate";
 import { updateProfile } from "./api/auth";
 import { useAuth } from "./contexts/AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
+// Phase 2 Components
+import { 
+  RemeshModal, 
+  DownloadMenu, 
+  TexturingPanel, 
+  RigPanel, 
+  AnimationPanel 
+} from "./Components/Phase2";
+// Phase 2 API
+import {
+  checkPhase2Health,
+  applyTexture,
+  generatePBR,
+  applyRig,
+  getAnimations,
+  applyAnimation,
+  remeshModel,
+  exportModel,
+  downloadModelFile
+} from "./api/phase2";
 
-// Generation mode tabs
+// Generation mode tabs 
 const MODES = [
   { 
     id: "text-to-3d", 
@@ -99,10 +121,21 @@ const ALLOWED_3D_EXTENSIONS = ['.glb', '.fbx', '.obj', '.usdz', '.stl', '.blend'
 const SIDEBAR_TOOLS = [
   { id: "generate", icon: Sparkles, label: "Generate", active: true },
   { id: "upload", icon: UploadCloud, label: "Upload", active: true },
-  { id: "layers", icon: Layers, label: "Layers", disabled: true },
-  { id: "texture", icon: Palette, label: "Texture", disabled: true },
-  { id: "animate", icon: Film, label: "Animation", disabled: true },
+  { id: "texture", icon: Palette, label: "Texture", active: true, requiresModel: true },
+  { id: "rig", icon: User, label: "Rig", active: true, requiresModel: true },
+  { id: "animate", icon: Film, label: "Animation", active: true, requiresRig: true },
   { id: "share", icon: Share2, label: "Share", active: true }
+];
+
+// Download format options
+const DOWNLOAD_FORMATS = [
+  { id: "fbx", label: "FBX", pro: false },
+  { id: "obj", label: "OBJ", pro: false },
+  { id: "glb", label: "GLB", pro: false, default: true },
+  { id: "usdz", label: "USDZ", pro: false },
+  { id: "stl", label: "STL", pro: false },
+  { id: "blend", label: "BLEND", pro: true },
+  { id: "3mf", label: "3MF", pro: false },
 ];
 
 export default function GeneratePage() {
@@ -139,6 +172,34 @@ export default function GeneratePage() {
   const [uploadingModel, setUploadingModel] = useState(false);
   const modelUploadRef = useRef(null);
   
+  // Phase 2 States
+  const [focusedVariant, setFocusedVariant] = useState(null); // When double-click or selecting features
+  const [currentTopology, setCurrentTopology] = useState("triangle"); // triangle | quad
+  const [showRemeshModal, setShowRemeshModal] = useState(false);
+  const [isRemeshing, setIsRemeshing] = useState(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const downloadButtonRef = useRef(null);
+  // Texturing states
+  const [showTexturingPanel, setShowTexturingPanel] = useState(false);
+  const [isTextured, setIsTextured] = useState(false);
+  const [isTexturing, setIsTexturing] = useState(false);
+  const [isPBREnabled, setIsPBREnabled] = useState(false);
+  const [isWireframeEnabled, setIsWireframeEnabled] = useState(false);
+  const [brightness, setBrightness] = useState(100);
+  const [texturePrompt, setTexturePrompt] = useState("");
+  const [textureStyle, setTextureStyle] = useState("realistic");
+  // Rig states
+  const [showRigPanel, setShowRigPanel] = useState(false);
+  const [isRigConfigured, setIsRigConfigured] = useState(false);
+  const [rigConfig, setRigConfig] = useState(null);
+  const [isRigging, setIsRigging] = useState(false);
+  // Animation states
+  const [showAnimationPanel, setShowAnimationPanel] = useState(false);
+  const [currentAnimation, setCurrentAnimation] = useState(null);
+  const [isAnimationPlaying, setIsAnimationPlaying] = useState(false);
+  // Phase 2 API status
+  const [phase2Available, setPhase2Available] = useState(false);
+  
   // Avatar functions
   const handleAvatarChange = async (newAvatar) => {
     const token = getToken();
@@ -174,41 +235,40 @@ export default function GeneratePage() {
       const model = state.editModel;
       setEditingModel(model);
       
-      // Set mode based on model type
+      
       if (state.mode) {
         setActiveMode(state.mode);
+      } else if (model.type) {
+        
+        setActiveMode(model.type);
       }
       
-      // Pre-fill prompt if text-to-3d
+      
       if (model.prompt) {
         setPrompt(model.prompt);
       }
       
-      // Determine modelType from prompt
-      const modelType = getModelTypeFromPrompt(model.prompt || model.name);
       
-      // Load the existing model into the viewer with correct modelType
+      const modelType = model.modelType || getModelTypeFromPrompt(model.prompt || model.name);
+      
+      
+      const savedVariant = model.variant || 1;
+      
+      
       if (model.modelUrl || model.prompt) {
-        setGeneratedModels([{
+        const loadedModel = {
           id: model._id,
           modelUrl: model.modelUrl,
           thumbnailUrl: model.thumbnailUrl,
           name: model.name,
+          prompt: model.prompt,
           modelType: modelType,
           isDemo: true,
           isExisting: true,
-          variant: 1
-        }]);
-        setSelectedGeneratedModel({
-          id: model._id,
-          modelUrl: model.modelUrl,
-          thumbnailUrl: model.thumbnailUrl,
-          name: model.name,
-          modelType: modelType,
-          isDemo: true,
-          isExisting: true,
-          variant: 1
-        });
+          variant: savedVariant
+        };
+        setGeneratedModels([loadedModel]);
+        setSelectedGeneratedModel(loadedModel);
       }
       
       // Clear the state so it doesn't reload on navigation
@@ -243,6 +303,22 @@ export default function GeneratePage() {
     checkHealth();
     const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
+  }, []);
+  
+  // Check Phase 2 API health
+  useEffect(() => {
+    const checkPhase2 = async () => {
+      try {
+        const result = await checkPhase2Health();
+        setPhase2Available(result.status === "healthy");
+        if (result.gpu_enabled) {
+          console.log("Phase 2 GPU features enabled!");
+        }
+      } catch {
+        setPhase2Available(false);
+      }
+    };
+    checkPhase2();
   }, []);
   
   // Canvas background animation
@@ -384,12 +460,12 @@ export default function GeneratePage() {
     }, 1000);
   };
 
-  // Handle save uploaded model to storage
+ 
   const handleSaveToStorage = async () => {
     if (!selectedGeneratedModel) return;
     
     try {
-      // Get existing models from localStorage
+      
       const existingModels = JSON.parse(localStorage.getItem("pv_my_models") || "[]");
       
       const savedModel = {
@@ -413,25 +489,25 @@ export default function GeneratePage() {
     }
   };
   
-  // Simulate generating 4 model variants (demo mode with actual 3D models)
+ 
   const generateModelVariants = (baseModel, isImageMode = false) => {
-    let modelType = "robot"; // default
+    let modelType = "robot"; 
     
-    // For image-to-3d mode, use the uploaded file name or default to "custom" type
+    
     if (isImageMode && uploadedFile) {
       const fileName = uploadedFile.name.toLowerCase();
-      // Try to detect from filename
+      
       if (fileName.includes("sword") || fileName.includes("blade")) modelType = "sword";
       else if (fileName.includes("cat") || fileName.includes("kitten")) modelType = "cat";
       else if (fileName.includes("car") || fileName.includes("vehicle")) modelType = "car";
       else if (fileName.includes("robot") || fileName.includes("bot")) modelType = "robot";
       else {
-        // Rotate through demo models for variety in demo mode
+        
         const demoTypes = ["robot", "sword", "car", "cat"];
         modelType = demoTypes[Math.floor(Math.random() * demoTypes.length)];
       }
     } else {
-      // Text-to-3D mode - detect from prompt
+      
       const promptLower = prompt.toLowerCase();
       
       for (const [key, type] of Object.entries(DEMO_MODEL_TYPES)) {
@@ -441,18 +517,22 @@ export default function GeneratePage() {
         }
       }
       
-      // Check specific keywords - order matters! Check 'cat' before 'car' since 'cat' could match 'car'
+      
       if (promptLower.includes("sword") || promptLower.includes("kiếm") || promptLower.includes("blade")) modelType = "sword";
       else if (promptLower.includes("cat") || promptLower.includes("mèo") || promptLower.includes("kitten")) modelType = "cat";
       else if (promptLower.includes("car") || promptLower.includes("xe") || promptLower.includes("oto") || promptLower.includes("vehicle")) modelType = "car";
       else if (promptLower.includes("robot") || promptLower.includes("bot") || promptLower.includes("droid")) modelType = "robot";
     }
     
-    // Generate 4 demo variants with different model types
+    
+    const dbId = baseModel?._id;
+    
+    
     const variants = [
       { 
         ...baseModel, 
-        id: `${baseModel?._id || Date.now()}-1`, 
+        id: `${baseModel?._id || Date.now()}-1`,
+        dbId: dbId, 
         variant: 1, 
         selected: false,
         modelType: modelType,
@@ -461,7 +541,8 @@ export default function GeneratePage() {
       },
       { 
         ...baseModel, 
-        id: `${baseModel?._id || Date.now()}-2`, 
+        id: `${baseModel?._id || Date.now()}-2`,
+        dbId: dbId, // Original database ID
         variant: 2, 
         selected: false,
         modelType: modelType,
@@ -470,7 +551,8 @@ export default function GeneratePage() {
       },
       { 
         ...baseModel, 
-        id: `${baseModel?._id || Date.now()}-3`, 
+        id: `${baseModel?._id || Date.now()}-3`,
+        dbId: dbId, // Original database ID
         variant: 3, 
         selected: false,
         modelType: modelType,
@@ -479,7 +561,8 @@ export default function GeneratePage() {
       },
       { 
         ...baseModel, 
-        id: `${baseModel?._id || Date.now()}-4`, 
+        id: `${baseModel?._id || Date.now()}-4`,
+        dbId: dbId, // Original database ID
         variant: 4, 
         selected: false,
         modelType: modelType,
@@ -532,9 +615,9 @@ export default function GeneratePage() {
         setGeneratedModels(variants);
         setSelectedGeneratedModel(variants[0]);
         
-        // Update modelType in database
+        // Update modelType and variant in database (default to variant 1)
         if (result.model?._id && variants[0]?.modelType) {
-          await updateModelType(result.model._id, variants[0].modelType);
+          await updateModelVariant(result.model._id, variants[0].modelType, 1);
         }
         
       } else {
@@ -567,9 +650,9 @@ export default function GeneratePage() {
         setGeneratedModels(variants);
         setSelectedGeneratedModel(variants[0]);
         
-        // Update modelType in database
+        // Update modelType and variant in database (default to variant 1)
         if (result.model?._id && variants[0]?.modelType) {
-          await updateModelType(result.model._id, variants[0].modelType);
+          await updateModelVariant(result.model._id, variants[0].modelType, 1);
         }
       }
       
@@ -717,6 +800,301 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
     setError(null);
     setProgress(0);
     setGenerationStep("");
+    // Reset Phase 2 states
+    setFocusedVariant(null);
+    setCurrentTopology("triangle");
+    setIsTextured(false);
+    setIsPBREnabled(false);
+    setIsWireframeEnabled(false);
+    setBrightness(100);
+    setIsRigConfigured(false);
+    setRigConfig(null);
+    setCurrentAnimation(null);
+    setIsAnimationPlaying(false);
+    setShowTexturingPanel(false);
+    setShowRigPanel(false);
+    setShowAnimationPanel(false);
+  };
+  
+  // Handle selecting a variant - update database with selected variant
+  const handleSelectVariant = async (model) => {
+    setSelectedGeneratedModel(model);
+    
+    // Update variant in database if we have a database ID
+    const modelDbId = model.dbId || model._id;
+    if (modelDbId && model.variant && model.modelType) {
+      try {
+        await updateModelVariant(modelDbId, model.modelType, model.variant);
+        console.log(`Updated model ${modelDbId} with variant ${model.variant} and modelType ${model.modelType}`);
+      } catch (err) {
+        console.error("Error updating variant:", err);
+      }
+    }
+  };
+
+  // ============ PHASE 2 HANDLERS ============
+  
+  // Handle double-click on variant to focus
+  const handleDoubleClickVariant = (model) => {
+    setFocusedVariant(model);
+    setSelectedGeneratedModel(model);
+  };
+
+  // Handle exit focus mode
+  const handleExitFocusMode = () => {
+    setFocusedVariant(null);
+  };
+
+  // Handle Remesh
+  const handleRemesh = async (topology) => {
+    if (!selectedGeneratedModel) return;
+    
+    setIsRemeshing(true);
+    try {
+      // Call Phase 2 API for remeshing
+      const result = await remeshModel(selectedGeneratedModel, topology, {
+        target_faces: topology === 'quad' ? 5000 : 10000
+      });
+      
+      if (result.success) {
+        setCurrentTopology(topology);
+        setShowRemeshModal(false);
+        // Update model if new remeshed model is returned
+        if (result.remeshed_model_path) {
+          console.log("Remeshed model:", result.remeshed_model_path);
+        }
+      } else {
+        throw new Error(result.error || "Remeshing failed");
+      }
+    } catch (err) {
+      setError("Error during remesh: " + err.message);
+    } finally {
+      setIsRemeshing(false);
+    }
+  };
+
+  // Handle Download with format selection
+  const handleDownloadWithFormat = async (format, modelName) => {
+    if (!selectedGeneratedModel) return;
+    
+    const safeFileName = (modelName || selectedGeneratedModel.name || "model")
+      .replace(/[^a-z0-9]/gi, '_')
+      .toLowerCase();
+    
+    try {
+      // Try to use Phase 2 API for export
+      const exportResult = await exportModel(selectedGeneratedModel, format, {
+        include_textures: isTextured,
+        include_rig: isRigConfigured,
+        include_animation: currentAnimation
+      });
+      
+      if (exportResult.success && exportResult.download_url) {
+        // Download from server
+        await downloadModelFile(exportResult.download_url, `${safeFileName}.${format}`);
+        setShowDownloadMenu(false);
+        return;
+      }
+    } catch (err) {
+      console.warn("Export API not available, using demo mode:", err.message);
+    }
+    
+    // Fallback to demo mode
+    let content = "";
+    let mimeType = "text/plain";
+    let extension = format;
+    
+    if (format === "obj") {
+      content = `# 3D Model exported from Polyva
+# Model: ${modelName}
+# Topology: ${currentTopology}
+# Generated: ${new Date().toISOString()}
+# 
+# Demo cube vertices
+v -0.5 -0.5 0.5
+v 0.5 -0.5 0.5
+v -0.5 0.5 0.5
+v 0.5 0.5 0.5
+v -0.5 0.5 -0.5
+v 0.5 0.5 -0.5
+v -0.5 -0.5 -0.5
+v 0.5 -0.5 -0.5
+# Faces
+f 1 2 4 3
+f 3 4 6 5
+f 5 6 8 7
+f 7 8 2 1
+f 2 8 6 4
+f 7 1 3 5
+`;
+    } else {
+      content = `# Polyva 3D Model
+# Format: ${format.toUpperCase()}
+# Model: ${modelName}
+# Topology: ${currentTopology}
+# Generated: ${new Date().toISOString()}
+# 
+# This is a demo file. Real export will contain actual 3D data.
+`;
+    }
+    
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeFileName}.${extension}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setShowDownloadMenu(false);
+  };
+
+  // Handle Texturing
+  const handleApplyTexture = async () => {
+    if (!selectedGeneratedModel) return;
+    
+    setIsTexturing(true);
+    try {
+      // Focus on selected variant
+      setFocusedVariant(selectedGeneratedModel);
+      
+      // Call Phase 2 API for texturing
+      const result = await applyTexture(selectedGeneratedModel, texturePrompt, {
+        style: textureStyle,
+        brightness: brightness
+      });
+      
+      if (result.success) {
+        setIsTextured(true);
+        // Update model path if new textured model is returned
+        if (result.textured_model_path) {
+          console.log("Textured model:", result.textured_model_path);
+        }
+      } else {
+        throw new Error(result.error || "Texturing failed");
+      }
+    } catch (err) {
+      setError("Error during texturing: " + err.message);
+    } finally {
+      setIsTexturing(false);
+    }
+  };
+
+  const handleRetexture = async () => {
+    setIsTextured(false);
+    setIsPBREnabled(false);
+    setBrightness(100);
+    await handleApplyTexture();
+  };
+
+  const handleTogglePBR = async () => {
+    if (!isPBREnabled && selectedGeneratedModel) {
+      // Generate PBR maps when enabling
+      try {
+        const result = await generatePBR(selectedGeneratedModel);
+        if (result.success) {
+          console.log("PBR maps generated:", result.maps);
+        }
+      } catch (err) {
+        console.warn("PBR generation in demo mode");
+      }
+    }
+    setIsPBREnabled(!isPBREnabled);
+  };
+
+  const handleToggleWireframe = () => {
+    setIsWireframeEnabled(!isWireframeEnabled);
+  };
+
+  const handleBrightnessChange = (value) => {
+    setBrightness(value);
+  };
+
+  // Handle Rig configuration
+  const handleConfirmRig = async (config) => {
+    if (!selectedGeneratedModel) return;
+    
+    setIsRigging(true);
+    try {
+      // Focus on selected variant
+      setFocusedVariant(selectedGeneratedModel);
+      
+      // Call Phase 2 API for rigging
+      const result = await applyRig(selectedGeneratedModel, config.type, {
+        markers: config.markers
+      });
+      
+      if (result.success) {
+        setRigConfig(config);
+        setIsRigConfigured(true);
+        setShowRigPanel(false);
+        // Update model path if new rigged model is returned
+        if (result.rigged_model_path) {
+          console.log("Rigged model:", result.rigged_model_path);
+        }
+      } else {
+        throw new Error(result.error || "Rigging failed");
+      }
+    } catch (err) {
+      setError("Error during rigging: " + err.message);
+    } finally {
+      setIsRigging(false);
+    }
+  };
+
+  // Handle Animation
+  const handleSelectAnimation = async (animation) => {
+    setCurrentAnimation(animation.id);
+    
+    // Apply animation via API if model is rigged
+    if (isRigConfigured && selectedGeneratedModel) {
+      try {
+        const result = await applyAnimation(selectedGeneratedModel, animation.id, {
+          loop: true,
+          speed: 1.0
+        });
+        
+        if (result.success) {
+          console.log("Animation applied:", result.animation_data);
+        }
+      } catch (err) {
+        console.warn("Animation in demo mode");
+      }
+    }
+  };
+
+  const handlePlayAnimation = (animationId) => {
+    setIsAnimationPlaying(true);
+    // In real implementation, this would trigger animation playback
+  };
+
+  const handleStopAnimation = () => {
+    setIsAnimationPlaying(false);
+  };
+
+  // Handle sidebar tool selection
+  const handleSidebarToolClick = (tool) => {
+    if (tool.id === "share" && selectedGeneratedModel) {
+      handleShare();
+    } else if (tool.id === "upload") {
+      setShowUploadModal(true);
+    } else if (tool.id === "texture" && selectedGeneratedModel) {
+      setFocusedVariant(selectedGeneratedModel);
+      setShowTexturingPanel(true);
+      setShowAnimationPanel(false);
+      setShowRigPanel(false);
+    } else if (tool.id === "rig" && selectedGeneratedModel) {
+      setShowRigPanel(true);
+      setShowTexturingPanel(false);
+      setShowAnimationPanel(false);
+    } else if (tool.id === "animate" && isRigConfigured) {
+      setShowAnimationPanel(true);
+      setShowTexturingPanel(false);
+      setShowRigPanel(false);
+    } else if (!tool.disabled && !tool.requiresModel && !tool.requiresRig) {
+      setActiveSidebarTool(tool.id);
+    }
   };
   
   return (
@@ -874,24 +1252,28 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
           {SIDEBAR_TOOLS.map(tool => (
             <button
               key={tool.id}
-              onClick={() => {
-                if (tool.id === "share" && selectedGeneratedModel) {
-                  handleShare();
-                } else if (tool.id === "upload") {
-                  setShowUploadModal(true);
-                } else if (!tool.disabled) {
-                  setActiveSidebarTool(tool.id);
-                }
-              }}
-              disabled={tool.disabled}
+              onClick={() => handleSidebarToolClick(tool)}
+              disabled={
+                (tool.requiresModel && !selectedGeneratedModel) || 
+                (tool.requiresRig && !isRigConfigured)
+              }
               className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
-                tool.disabled 
+                (tool.requiresModel && !selectedGeneratedModel) || (tool.requiresRig && !isRigConfigured)
                   ? "opacity-30 cursor-not-allowed"
-                  : activeSidebarTool === tool.id || (tool.id === "share" && selectedGeneratedModel) || (tool.id === "upload" && showUploadModal)
+                  : activeSidebarTool === tool.id || 
+                    (tool.id === "share" && selectedGeneratedModel) || 
+                    (tool.id === "upload" && showUploadModal) ||
+                    (tool.id === "texture" && showTexturingPanel) ||
+                    (tool.id === "rig" && showRigPanel) ||
+                    (tool.id === "animate" && showAnimationPanel)
                     ? `${theme === 'dark' ? 'bg-lime-500/20 border-lime-500/30' : 'bg-cyan-500/20 border-cyan-500/30'} ${currentTheme.accentColor} border`
                     : `${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${currentTheme.textSecondary} hover:${currentTheme.text}`
               }`}
-              title={tool.label}
+              title={tool.requiresModel && !selectedGeneratedModel 
+                ? `${tool.label} (Generate a model first)` 
+                : tool.requiresRig && !isRigConfigured 
+                ? `${tool.label} (Configure rig first)` 
+                : tool.label}
             >
               <tool.icon className="w-5 h-5" />
               <span className="text-[9px]">{tool.label}</span>
@@ -1139,14 +1521,29 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                 <Box className={currentTheme.accentColor} size={20} />
                 <h2 className="font-semibold">3D Preview</h2>
                 {selectedGeneratedModel && (
-                  <span className={`text-xs ${currentTheme.accentColor} ${theme === 'dark' ? 'bg-lime-900/30' : 'bg-cyan-100'} px-2 py-1 rounded`}>
-                    Variant {selectedGeneratedModel.variant}
-                  </span>
+                  <>
+                    <span className={`text-xs ${currentTheme.accentColor} ${theme === 'dark' ? 'bg-lime-900/30' : 'bg-cyan-100'} px-2 py-1 rounded`}>
+                      Variant {selectedGeneratedModel.variant}
+                    </span>
+                    <span className={`text-xs ${currentTheme.textMuted} ${currentTheme.cardBg} px-2 py-1 rounded`}>
+                      {currentTopology === "quad" ? "Quad" : "Triangle"}
+                    </span>
+                    {isTextured && (
+                      <span className={`text-xs text-purple-400 ${theme === 'dark' ? 'bg-purple-900/30' : 'bg-purple-100'} px-2 py-1 rounded`}>
+                        Textured
+                      </span>
+                    )}
+                    {isRigConfigured && (
+                      <span className={`text-xs text-amber-400 ${theme === 'dark' ? 'bg-amber-900/30' : 'bg-amber-100'} px-2 py-1 rounded`}>
+                        Rigged
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
               
               {/* Action buttons when model is generated - using icons only */}
-              {generatedModels.length > 0 && (
+              {generatedModels.length > 0 && !focusedVariant && (
                 <div className="flex items-center gap-1">
                   <button
                     onClick={handleSaveToStorage}
@@ -1156,13 +1553,26 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                   >
                     <Save size={18} />
                   </button>
+                  {/* Download with dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+                      disabled={!selectedGeneratedModel}
+                      title="Download"
+                      className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50 flex items-center gap-1`}
+                    >
+                      <Download size={18} />
+                      <ChevronDown size={12} />
+                    </button>
+                  </div>
+                  {/* Remesh */}
                   <button
-                    onClick={handleDownloadSelected}
-                    disabled={!selectedGeneratedModel}
-                    title="Download"
+                    onClick={() => setShowRemeshModal(true)}
+                    disabled={!selectedGeneratedModel || selectedGeneratedModel?.isUploaded}
+                    title="Remesh"
                     className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
                   >
-                    <Download size={18} />
+                    <Grid3X3 size={18} />
                   </button>
                   <button
                     onClick={handleRetry}
@@ -1188,60 +1598,221 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
             <div className="flex-1 flex flex-col relative overflow-y-auto">
               {generatedModels.length > 0 ? (
                 <>
-                  {/* 4-grid model view */}
-                  <div className="grid grid-cols-2 gap-1 p-1 min-h-0">
-                    {generatedModels.map((model, index) => (
-                      <motion.div
-                        key={model.id}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: index * 0.1 }}
-                        onClick={() => setSelectedGeneratedModel(model)}
-                        className={`relative ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden cursor-pointer transition-all ${
-                          selectedGeneratedModel?.id === model.id
-                            ? `ring-2 ${theme === 'dark' ? 'ring-lime-500' : 'ring-cyan-500'}`
-                            : `hover:ring-1 ${theme === 'dark' ? 'hover:ring-white/20' : 'hover:ring-black/10'}`
-                        }`}
+                  {/* Show either focused view or 4-grid view */}
+                  {focusedVariant ? (
+                    /* Focused single variant view */
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="flex-1 relative"
+                    >
+                      {/* Exit focus button */}
+                      <button
+                        onClick={handleExitFocusMode}
+                        className={`absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all`}
                       >
-                        {/* Demo 3D Model Viewer */}
-                        <DemoModelPreview
-                          modelType={model.modelType || "robot"}
-                          className="w-full h-full min-h-[180px]"
-                          autoRotate={true}
-                        />
+                        <X size={16} />
+                        <span className="text-sm">Back to all variants</span>
+                      </button>
                       
-                      {/* Variant label */}
-                      <div className="absolute top-3 left-3">
-                        <span className={`px-2 py-1 ${theme === 'dark' ? 'bg-black/50' : 'bg-white/80'} backdrop-blur-sm rounded-lg text-xs ${currentTheme.text}`}>
-                          Variant {model.variant}
+                      {/* Variant info */}
+                      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+                        <span className={`px-3 py-1.5 ${theme === 'dark' ? 'bg-lime-900/30' : 'bg-cyan-100'} rounded-lg text-sm ${currentTheme.accentColor}`}>
+                          Variant {focusedVariant.variant}
                         </span>
+                        <span className={`px-3 py-1.5 ${currentTheme.cardBg} rounded-lg text-sm ${currentTheme.textSecondary}`}>
+                          {currentTopology === "quad" ? "Quad" : "Triangle"} Mesh
+                        </span>
+                        {isTextured && (
+                          <span className={`px-3 py-1.5 ${theme === 'dark' ? 'bg-purple-900/30' : 'bg-purple-100'} rounded-lg text-sm text-purple-400`}>
+                            Textured
+                          </span>
+                        )}
+                        {isRigConfigured && (
+                          <span className={`px-3 py-1.5 ${theme === 'dark' ? 'bg-amber-900/30' : 'bg-amber-100'} rounded-lg text-sm text-amber-400`}>
+                            Rigged
+                          </span>
+                        )}
                       </div>
                       
-                      {/* Selected indicator */}
-                      {selectedGeneratedModel?.id === model.id && (
-                        <div className="absolute top-3 right-3">
-                          <div className={`w-6 h-6 ${currentTheme.accentBg} rounded-full flex items-center justify-center`}>
-                            <Check size={14} className="text-white" />
-                          </div>
-                        </div>
-                      )}
+                      {/* Large model preview */}
+                      <DemoModelPreview
+                        modelType={focusedVariant.modelType || "robot"}
+                        variant={focusedVariant.variant || 1}
+                        className="w-full h-full min-h-[400px]"
+                        autoRotate={!isAnimationPlaying}
+                        wireframe={isWireframeEnabled}
+                        brightness={brightness}
+                      />
                       
-                      {/* Hover overlay */}
-                      <div className={`absolute inset-0 bg-gradient-to-t ${theme === 'dark' ? 'from-black/60' : 'from-white/80'} via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity flex items-end p-4`}>
-                        <div className="flex gap-2">
-                          <button className={`p-2 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'} backdrop-blur-sm rounded-lg ${theme === 'dark' ? 'hover:bg-white/20' : 'hover:bg-black/20'} transition-colors`}>
-                            <Eye size={16} />
+                      {/* Focused variant controls */}
+                      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2">
+                        {/* Download with format selection */}
+                        <div className="relative" ref={downloadButtonRef}>
+                          <button
+                            onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+                            className={`p-3 ${currentTheme.accentBg} rounded-xl text-white ${
+                              theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'
+                            } transition-all shadow-lg flex items-center gap-2`}
+                            title="Download"
+                          >
+                            <Download size={20} />
+                            <ChevronDown size={16} />
                           </button>
-                          <button className={`p-2 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'} backdrop-blur-sm rounded-lg ${theme === 'dark' ? 'hover:bg-white/20' : 'hover:bg-black/20'} transition-colors`}>
-                            <Download size={16} />
-                          </button>
+                          {showDownloadMenu && (
+                            <DownloadMenu
+                              isOpen={showDownloadMenu}
+                              onClose={() => setShowDownloadMenu(false)}
+                              onDownload={handleDownloadWithFormat}
+                              theme={theme}
+                              modelName={focusedVariant.name || prompt}
+                            />
+                          )}
                         </div>
+                        
+                        {/* Remesh button */}
+                        <button
+                          onClick={() => setShowRemeshModal(true)}
+                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all flex items-center gap-2`}
+                          title="Remesh"
+                        >
+                          <Grid3X3 size={20} />
+                          <span className="text-sm">Remesh</span>
+                        </button>
+                        
+                        {/* Retry */}
+                        <button
+                          onClick={handleRetry}
+                          disabled={isGenerating}
+                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all disabled:opacity-50`}
+                          title="Retry"
+                        >
+                          <RefreshCw size={20} className={isGenerating ? "animate-spin" : ""} />
+                        </button>
+                        
+                        {/* Save */}
+                        <button
+                          onClick={handleSaveToStorage}
+                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all`}
+                          title="Save to Storage"
+                        >
+                          <Save size={20} />
+                        </button>
+                        
+                        {/* Share */}
+                        <button
+                          onClick={handleShare}
+                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all`}
+                          title="Share"
+                        >
+                          <Share2 size={20} />
+                        </button>
                       </div>
                     </motion.div>
-                  ))}
-                </div>
+                  ) : (
+                    /* 4-grid model view */
+                    <div className="grid grid-cols-2 gap-1 p-1 min-h-0">
+                      {generatedModels.map((model, index) => (
+                        <motion.div
+                          key={model.id}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: index * 0.1 }}
+                          onClick={() => handleSelectVariant(model)}
+                          onDoubleClick={() => handleDoubleClickVariant(model)}
+                          className={`relative ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden cursor-pointer transition-all ${
+                            selectedGeneratedModel?.id === model.id
+                              ? `ring-2 ${theme === 'dark' ? 'ring-lime-500' : 'ring-cyan-500'}`
+                              : `hover:ring-1 ${theme === 'dark' ? 'hover:ring-white/20' : 'hover:ring-black/10'}`
+                          }`}
+                        >
+                          {/* Demo 3D Model Viewer */}
+                          <DemoModelPreview
+                            modelType={model.modelType || "robot"}
+                            variant={model.variant || 1}
+                            className="w-full h-full min-h-[180px]"
+                            autoRotate={true}
+                          />
+                        
+                        {/* Variant label */}
+                        <div className="absolute top-3 left-3">
+                          <span className={`px-2 py-1 ${theme === 'dark' ? 'bg-black/50' : 'bg-white/80'} backdrop-blur-sm rounded-lg text-xs ${currentTheme.text}`}>
+                            Variant {model.variant}
+                          </span>
+                        </div>
+                        
+                        {/* Topology indicator */}
+                        <div className="absolute top-3 right-12">
+                          <span className={`px-2 py-1 ${theme === 'dark' ? 'bg-black/50' : 'bg-white/80'} backdrop-blur-sm rounded-lg text-[10px] ${currentTheme.textMuted}`}>
+                            {currentTopology === "quad" ? "Quad" : "Tri"}
+                          </span>
+                        </div>
+                        
+                        {/* Selected indicator */}
+                        {selectedGeneratedModel?.id === model.id && (
+                          <div className="absolute top-3 right-3">
+                            <div className={`w-6 h-6 ${currentTheme.accentBg} rounded-full flex items-center justify-center`}>
+                              <Check size={14} className="text-white" />
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Hover overlay with actions */}
+                        <div className={`absolute inset-0 bg-gradient-to-t ${theme === 'dark' ? 'from-black/60' : 'from-white/80'} via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity flex items-end p-4`}>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectVariant(model);
+                                setShowTexturingPanel(true);
+                                setFocusedVariant(model);
+                              }}
+                              className={`p-2 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'} backdrop-blur-sm rounded-lg ${theme === 'dark' ? 'hover:bg-white/20' : 'hover:bg-black/20'} transition-colors`}
+                              title="Texturing"
+                            >
+                              <Palette size={16} />
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectVariant(model);
+                                setShowRigPanel(true);
+                              }}
+                              className={`p-2 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'} backdrop-blur-sm rounded-lg ${theme === 'dark' ? 'hover:bg-white/20' : 'hover:bg-black/20'} transition-colors`}
+                              title="Rig"
+                            >
+                              <User size={16} />
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowRemeshModal(true);
+                                handleSelectVariant(model);
+                              }}
+                              className={`p-2 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'} backdrop-blur-sm rounded-lg ${theme === 'dark' ? 'hover:bg-white/20' : 'hover:bg-black/20'} transition-colors`}
+                              title="Remesh"
+                            >
+                              <Grid3X3 size={16} />
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDoubleClickVariant(model);
+                              }}
+                              className={`p-2 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'} backdrop-blur-sm rounded-lg ${theme === 'dark' ? 'hover:bg-white/20' : 'hover:bg-black/20'} transition-colors`}
+                              title="View Full"
+                            >
+                              <Eye size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                  )}
                 
-                {/* Action buttons below 4 variants - using icons to save space */}
+                {/* Action buttons below 4 variants - only show when not in focused mode */}
+                {!focusedVariant && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1270,14 +1841,50 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                       title="Download Model"
                       className={`p-2.5 rounded-xl transition-all ${
                         selectedGeneratedModel
-                          ? `${currentTheme.accentBg} text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} shadow-lg ${theme === 'dark' ? 'shadow-lime-500/30' : 'shadow-cyan-500/30'}`
+                          ? `${currentTheme.cardBg} border ${currentTheme.border} ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
                           : `${currentTheme.cardBg} ${currentTheme.textMuted} cursor-not-allowed`
                       }`}
                     >
-                      <Download size={20} />
+                      <Save size={20} />
                     </button>
                     
+                    {/* Download with format menu */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+                        disabled={!selectedGeneratedModel}
+                        title="Download Model"
+                        className={`p-2.5 rounded-xl transition-all flex items-center gap-1 ${
+                          selectedGeneratedModel
+                            ? `${currentTheme.accentBg} text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} shadow-lg ${theme === 'dark' ? 'shadow-lime-500/30' : 'shadow-cyan-500/30'}`
+                            : `${currentTheme.cardBg} ${currentTheme.textMuted} cursor-not-allowed`
+                        }`}
+                      >
+                        <Download size={20} />
+                        <ChevronDown size={14} />
+                      </button>
+                      {showDownloadMenu && (
+                        <DownloadMenu
+                          isOpen={showDownloadMenu}
+                          onClose={() => setShowDownloadMenu(false)}
+                          onDownload={handleDownloadWithFormat}
+                          theme={theme}
+                          modelName={selectedGeneratedModel?.name || prompt}
+                        />
+                      )}
+                    </div>
+                    
                     <div className={`w-px h-8 ${currentTheme.border}`} />
+                    
+                    {/* Remesh - NEW */}
+                    <button
+                      onClick={() => setShowRemeshModal(true)}
+                      disabled={!selectedGeneratedModel || selectedGeneratedModel?.isUploaded}
+                      title="Remesh (Change Topology)"
+                      className={`p-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
+                    >
+                      <Grid3X3 size={20} />
+                    </button>
                     
                     {/* Retry with AI - disabled for uploaded models */}
                     <button
@@ -1298,17 +1905,9 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                     >
                       <Share2 size={20} />
                     </button>
-                    
-                    {/* Edit - Phase 2 placeholder */}
-                    <button
-                      disabled={true}
-                      title="Edit Model (Coming in Phase 2)"
-                      className={`p-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textMuted} cursor-not-allowed opacity-50`}
-                    >
-                      <Edit3 size={20} />
-                    </button>
                   </div>
                 </motion.div>
+                )}
                 </>
               ) : (
                 // Empty state
@@ -1665,6 +2264,77 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ============ PHASE 2 MODALS & PANELS ============ */}
+      
+      {/* Remesh Modal */}
+      <RemeshModal
+        isOpen={showRemeshModal}
+        onClose={() => setShowRemeshModal(false)}
+        onRemesh={handleRemesh}
+        currentTopology={currentTopology}
+        isProcessing={isRemeshing}
+        theme={theme}
+      />
+
+      {/* Texturing Panel */}
+      <AnimatePresence>
+        {showTexturingPanel && (
+          <TexturingPanel
+            isOpen={showTexturingPanel}
+            onClose={() => {
+              setShowTexturingPanel(false);
+              if (!isTextured) {
+                setFocusedVariant(null);
+              }
+            }}
+            onApplyTexture={handleApplyTexture}
+            onTogglePBR={handleTogglePBR}
+            onToggleWireframe={handleToggleWireframe}
+            onBrightnessChange={handleBrightnessChange}
+            onRetexture={handleRetexture}
+            onDownload={() => handleDownloadWithFormat("glb", selectedGeneratedModel?.name || prompt)}
+            isPBREnabled={isPBREnabled}
+            isWireframeEnabled={isWireframeEnabled}
+            brightness={brightness}
+            isProcessing={isTexturing}
+            isTextured={isTextured}
+            currentTopology={currentTopology}
+            theme={theme}
+            texturePrompt={texturePrompt}
+            setTexturePrompt={setTexturePrompt}
+            textureStyle={textureStyle}
+            setTextureStyle={setTextureStyle}
+            gpuEnabled={phase2Available}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Rig Panel */}
+      <RigPanel
+        isOpen={showRigPanel}
+        onClose={() => setShowRigPanel(false)}
+        onConfirmRig={handleConfirmRig}
+        isProcessing={isRigging}
+        theme={theme}
+      />
+
+      {/* Animation Panel */}
+      <AnimatePresence>
+        {showAnimationPanel && (
+          <AnimationPanel
+            isOpen={showAnimationPanel}
+            onClose={() => setShowAnimationPanel(false)}
+            onSelectAnimation={handleSelectAnimation}
+            onPlayAnimation={handlePlayAnimation}
+            onStopAnimation={handleStopAnimation}
+            currentAnimation={currentAnimation}
+            isPlaying={isAnimationPlaying}
+            isRigConfigured={isRigConfigured}
+            theme={theme}
+          />
         )}
       </AnimatePresence>
     </div>

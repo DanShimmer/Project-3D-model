@@ -29,6 +29,14 @@ from stable_diffusion import text_to_image
 from triposr_wrapper import image_to_3d
 from postprocessing import postprocess_mesh
 
+# Import Phase 2 services
+try:
+    from phase2_service import register_phase2, Phase2Config
+    PHASE2_AVAILABLE = True
+except ImportError:
+    PHASE2_AVAILABLE = False
+    print("⚠️ Phase 2 services not available")
+
 
 app = Flask(__name__)
 CORS(app)
@@ -323,6 +331,13 @@ def serve_upload(filename):
 
 
 if __name__ == '__main__':
+    # Register Phase 2 routes if available
+    if PHASE2_AVAILABLE:
+        register_phase2(app)
+        phase2_status = "✅ Enabled" if Phase2Config.ENABLE_GPU_FEATURES else "⚠️ Demo Mode (GPU not enabled)"
+    else:
+        phase2_status = "❌ Not Available"
+    
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗
 ║                    🤖 AI Service                              ║
@@ -331,6 +346,14 @@ if __name__ == '__main__':
 ║  Image-to-3D: POST /api/image-to-3d                         ║
 ║  Job Status:  GET  /api/job/<job_id>                        ║
 ║  Files:       GET  /outputs/<filename>                      ║
+║                                                              ║
+║  ═══════════════ Phase 2 Features ═══════════════           ║
+║  Status: {phase2_status:<47}║
+║  Texture:     POST /api/phase2/texture                      ║
+║  Rig:         POST /api/phase2/rig                          ║
+║  Animate:     POST /api/phase2/animate                      ║
+║  Remesh:      POST /api/phase2/remesh                       ║
+║  Export:      POST /api/phase2/export                       ║
 ║                                                              ║
 ║  Port: {PORT:<5}                                              ║
 ╚══════════════════════════════════════════════════════════════╝

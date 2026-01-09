@@ -456,11 +456,11 @@ export default function PolyvaApp() {
 
                 <motion.button
                   whileHover={{ scale: 1.02 }}
-                  onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}
+                  onClick={() => navigate("/download")}
                   className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white/5 border border-white/10 text-white rounded-full font-medium hover:bg-white/10 transition-all"
                 >
-                  <Play className="w-5 h-5" />
-                  Watch Demo
+                  <Download className="w-5 h-5" />
+                  Download App
                 </motion.button>
               </motion.div>
             </div>

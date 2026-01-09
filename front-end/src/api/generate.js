@@ -111,3 +111,26 @@ export async function updateModelType(modelId, modelType) {
     return { ok: false, msg: error.message };
   }
 }
+
+/**
+ * Update model with modelType and variant
+ * @param {string} modelId - Model ID to update
+ * @param {string} modelType - Type of demo model (robot, sword, car, cat)
+ * @param {number} variant - Selected variant number (1-4)
+ */
+export async function updateModelVariant(modelId, modelType, variant) {
+  try {
+    const res = await fetch(`${API_BASE}/models/${modelId}`, {
+      method: "PUT",
+      headers: { 
+        "Content-Type": "application/json", 
+        ...authHeaders() 
+      },
+      body: JSON.stringify({ modelType, variant }),
+    });
+    return res.json();
+  } catch (error) {
+    console.error("Update model variant error:", error);
+    return { ok: false, msg: error.message };
+  }
+}

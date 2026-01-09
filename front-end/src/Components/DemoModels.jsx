@@ -8,8 +8,10 @@ import * as THREE from "three";
 // =============================================
 
 // 1. Medieval Sword Model
-function SwordModel({ autoRotate = true }) {
+function SwordModel({ autoRotate = true, variantColors = {} }) {
   const groupRef = useRef();
+  const primaryColor = variantColors.primary || "#a8a8a8";
+  const accentColor = variantColors.accent || "#8B4513";
   
   useFrame((state, delta) => {
     if (groupRef.current && autoRotate) {
@@ -22,17 +24,17 @@ function SwordModel({ autoRotate = true }) {
       {/* Blade */}
       <mesh position={[0, 0.8, 0]}>
         <boxGeometry args={[0.15, 2, 0.05]} />
-        <meshStandardMaterial color="#a8a8a8" metalness={0.9} roughness={0.1} />
+        <meshStandardMaterial color={primaryColor} metalness={0.9} roughness={0.1} />
       </mesh>
       {/* Blade tip */}
       <mesh position={[0, 1.9, 0]} rotation={[0, 0, Math.PI / 4]}>
         <boxGeometry args={[0.15, 0.15, 0.05]} />
-        <meshStandardMaterial color="#a8a8a8" metalness={0.9} roughness={0.1} />
+        <meshStandardMaterial color={primaryColor} metalness={0.9} roughness={0.1} />
       </mesh>
       {/* Guard */}
       <mesh position={[0, -0.3, 0]}>
         <boxGeometry args={[0.6, 0.1, 0.15]} />
-        <meshStandardMaterial color="#8B4513" metalness={0.6} roughness={0.4} />
+        <meshStandardMaterial color={accentColor} metalness={0.6} roughness={0.4} />
       </mesh>
       {/* Handle */}
       <mesh position={[0, -0.7, 0]}>
@@ -42,7 +44,7 @@ function SwordModel({ autoRotate = true }) {
       {/* Pommel */}
       <mesh position={[0, -1.05, 0]}>
         <sphereGeometry args={[0.1, 16, 16]} />
-        <meshStandardMaterial color="#8B4513" metalness={0.7} roughness={0.3} />
+        <meshStandardMaterial color={accentColor} metalness={0.7} roughness={0.3} />
       </mesh>
       {/* Blade glow line */}
       <mesh position={[0, 0.8, 0.03]}>
@@ -54,8 +56,10 @@ function SwordModel({ autoRotate = true }) {
 }
 
 // 2. Cute Robot Model
-function RobotModel({ autoRotate = true }) {
+function RobotModel({ autoRotate = true, variantColors = {} }) {
   const groupRef = useRef();
+  const primaryColor = variantColors.primary || "#4fc3f7";
+  const accentColor = variantColors.accent || "#64b5f6";
   
   useFrame((state, delta) => {
     if (groupRef.current && autoRotate) {
@@ -67,11 +71,11 @@ function RobotModel({ autoRotate = true }) {
     <group ref={groupRef}>
       {/* Body */}
       <RoundedBox args={[1, 1.2, 0.8]} radius={0.15} smoothness={4} position={[0, 0, 0]}>
-        <meshStandardMaterial color="#4fc3f7" metalness={0.3} roughness={0.4} />
+        <meshStandardMaterial color={primaryColor} metalness={0.3} roughness={0.4} />
       </RoundedBox>
       {/* Head */}
       <RoundedBox args={[0.8, 0.7, 0.7]} radius={0.15} smoothness={4} position={[0, 1, 0]}>
-        <meshStandardMaterial color="#4fc3f7" metalness={0.3} roughness={0.4} />
+        <meshStandardMaterial color={primaryColor} metalness={0.3} roughness={0.4} />
       </RoundedBox>
       {/* Eyes */}
       <mesh position={[-0.2, 1.1, 0.35]}>
@@ -93,10 +97,10 @@ function RobotModel({ autoRotate = true }) {
       </mesh>
       {/* Arms */}
       <RoundedBox args={[0.25, 0.8, 0.25]} radius={0.08} position={[-0.7, 0.1, 0]}>
-        <meshStandardMaterial color="#64b5f6" metalness={0.3} roughness={0.4} />
+        <meshStandardMaterial color={accentColor} metalness={0.3} roughness={0.4} />
       </RoundedBox>
       <RoundedBox args={[0.25, 0.8, 0.25]} radius={0.08} position={[0.7, 0.1, 0]}>
-        <meshStandardMaterial color="#64b5f6" metalness={0.3} roughness={0.4} />
+        <meshStandardMaterial color={accentColor} metalness={0.3} roughness={0.4} />
       </RoundedBox>
       {/* Legs */}
       <RoundedBox args={[0.3, 0.6, 0.3]} radius={0.08} position={[-0.25, -0.9, 0]}>
@@ -124,8 +128,9 @@ function RobotModel({ autoRotate = true }) {
 }
 
 // 3. Sports Car Model
-function CarModel({ autoRotate = true }) {
+function CarModel({ autoRotate = true, variantColors = {} }) {
   const groupRef = useRef();
+  const primaryColor = variantColors.primary || "#e53935";
   
   useFrame((state, delta) => {
     if (groupRef.current && autoRotate) {
@@ -138,12 +143,12 @@ function CarModel({ autoRotate = true }) {
       {/* Main body */}
       <mesh position={[0, 0.3, 0]}>
         <boxGeometry args={[1.8, 0.4, 0.9]} />
-        <meshStandardMaterial color="#e53935" metalness={0.8} roughness={0.2} />
+        <meshStandardMaterial color={primaryColor} metalness={0.8} roughness={0.2} />
       </mesh>
       {/* Hood - slanted front */}
       <mesh position={[0.7, 0.35, 0]} rotation={[0, 0, -0.2]}>
         <boxGeometry args={[0.6, 0.3, 0.85]} />
-        <meshStandardMaterial color="#e53935" metalness={0.8} roughness={0.2} />
+        <meshStandardMaterial color={primaryColor} metalness={0.8} roughness={0.2} />
       </mesh>
       {/* Cabin */}
       <mesh position={[-0.1, 0.65, 0]}>
@@ -158,7 +163,7 @@ function CarModel({ autoRotate = true }) {
       {/* Rear */}
       <mesh position={[-0.8, 0.4, 0]}>
         <boxGeometry args={[0.4, 0.35, 0.85]} />
-        <meshStandardMaterial color="#e53935" metalness={0.8} roughness={0.2} />
+        <meshStandardMaterial color={primaryColor} metalness={0.8} roughness={0.2} />
       </mesh>
       {/* Wheels */}
       {[[-0.55, 0, 0.5], [-0.55, 0, -0.5], [0.55, 0, 0.5], [0.55, 0, -0.5]].map((pos, i) => (
@@ -196,8 +201,10 @@ function CarModel({ autoRotate = true }) {
 }
 
 // 4. Cartoon Cat Model
-function CatModel({ autoRotate = true }) {
+function CatModel({ autoRotate = true, variantColors = {} }) {
   const groupRef = useRef();
+  const primaryColor = variantColors.primary || "#ff9800";
+  const accentColor = variantColors.accent || "#e65100";
   
   useFrame((state, delta) => {
     if (groupRef.current && autoRotate) {
@@ -210,21 +217,21 @@ function CatModel({ autoRotate = true }) {
       {/* Body */}
       <mesh position={[0, 0, 0]}>
         <sphereGeometry args={[0.6, 24, 24]} />
-        <meshStandardMaterial color="#ff9800" roughness={0.9} />
+        <meshStandardMaterial color={primaryColor} roughness={0.9} />
       </mesh>
       {/* Head */}
       <mesh position={[0, 0.8, 0.2]}>
         <sphereGeometry args={[0.5, 24, 24]} />
-        <meshStandardMaterial color="#ff9800" roughness={0.9} />
+        <meshStandardMaterial color={primaryColor} roughness={0.9} />
       </mesh>
       {/* Ears */}
       <mesh position={[-0.3, 1.3, 0.1]} rotation={[0, 0, -0.3]}>
         <coneGeometry args={[0.15, 0.3, 3]} />
-        <meshStandardMaterial color="#ff9800" roughness={0.9} />
+        <meshStandardMaterial color={primaryColor} roughness={0.9} />
       </mesh>
       <mesh position={[0.3, 1.3, 0.1]} rotation={[0, 0, 0.3]}>
         <coneGeometry args={[0.15, 0.3, 3]} />
-        <meshStandardMaterial color="#ff9800" roughness={0.9} />
+        <meshStandardMaterial color={primaryColor} roughness={0.9} />
       </mesh>
       {/* Inner ears */}
       <mesh position={[-0.28, 1.25, 0.15]} rotation={[0, 0, -0.3]}>
@@ -273,22 +280,22 @@ function CatModel({ autoRotate = true }) {
       {/* Front paws */}
       <mesh position={[-0.25, -0.45, 0.3]}>
         <sphereGeometry args={[0.15, 16, 16]} />
-        <meshStandardMaterial color="#ff9800" roughness={0.9} />
+        <meshStandardMaterial color={primaryColor} roughness={0.9} />
       </mesh>
       <mesh position={[0.25, -0.45, 0.3]}>
         <sphereGeometry args={[0.15, 16, 16]} />
-        <meshStandardMaterial color="#ff9800" roughness={0.9} />
+        <meshStandardMaterial color={primaryColor} roughness={0.9} />
       </mesh>
       {/* Tail */}
       <mesh position={[-0.5, 0.2, -0.3]} rotation={[0.5, 0.3, 0.8]}>
         <cylinderGeometry args={[0.08, 0.05, 0.6, 12]} />
-        <meshStandardMaterial color="#ff9800" roughness={0.9} />
+        <meshStandardMaterial color={primaryColor} roughness={0.9} />
       </mesh>
       {/* Stripes on body */}
       {[0.1, 0, -0.1].map((y, i) => (
         <mesh key={i} position={[0, y, 0.55]} rotation={[0, 0, 0]}>
           <boxGeometry args={[0.4, 0.05, 0.02]} />
-          <meshStandardMaterial color="#e65100" />
+          <meshStandardMaterial color={accentColor} />
         </mesh>
       ))}
     </group>
@@ -307,9 +314,18 @@ const MODEL_COMPONENTS = {
   cat: CatModel,
 };
 
+// Color themes for different variants
+const VARIANT_COLORS = {
+  1: { primary: null, accent: null }, // Default colors from model
+  2: { primary: "#ff6b6b", accent: "#ff8787" }, // Red theme
+  3: { primary: "#9b59b6", accent: "#a569bd" }, // Purple theme
+  4: { primary: "#f39c12", accent: "#f5b041" }, // Orange/Gold theme
+};
+
 // Demo model preview (for generate page variants)
-export function DemoModelPreview({ modelType = "robot", autoRotate = true, className = "" }) {
+export function DemoModelPreview({ modelType = "robot", variant = 1, autoRotate = true, className = "" }) {
   const ModelComponent = MODEL_COMPONENTS[modelType] || RobotModel;
+  const variantColors = VARIANT_COLORS[variant] || VARIANT_COLORS[1];
   
   return (
     <div className={`w-full h-full ${className}`}>
@@ -323,7 +339,7 @@ export function DemoModelPreview({ modelType = "robot", autoRotate = true, class
         <directionalLight position={[-5, -5, -5]} intensity={0.5} />
         <pointLight position={[0, 5, 0]} intensity={0.5} />
         <Environment preset="city" />
-        <ModelComponent autoRotate={autoRotate} />
+        <ModelComponent autoRotate={autoRotate} variantColors={variantColors} />
         <OrbitControls enableZoom={false} enablePan={false} />
       </Canvas>
     </div>
