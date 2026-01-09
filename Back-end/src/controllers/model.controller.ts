@@ -86,7 +86,7 @@ export const updateModel = async (req: Request, res: Response) => {
   try {
     const { modelId } = req.params;
     const userId = req.user._id;
-    const { name, prompt, imageUrl, modelUrl, thumbnailUrl, isPublic } = req.body;
+    const { name, prompt, imageUrl, modelUrl, thumbnailUrl, isPublic, modelType, variant } = req.body;
     
     const model = await Model.findOne({ _id: modelId, userId });
     if (!model) {
@@ -100,9 +100,9 @@ export const updateModel = async (req: Request, res: Response) => {
     if (thumbnailUrl !== undefined) model.thumbnailUrl = thumbnailUrl;
     if (isPublic !== undefined) model.isPublic = isPublic;
     
-    // Handle modelType for demo models
-    const { modelType } = req.body;
+    // Handle modelType and variant for demo models
     if (modelType !== undefined) (model as any).modelType = modelType;
+    if (variant !== undefined) (model as any).variant = variant;
     
     await model.save();
     

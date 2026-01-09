@@ -495,10 +495,20 @@ export default function MyStorage() {
                   <div className={`absolute inset-0 ${model.thumbnailUrl && !model.isDemo && model.thumbnailUrl.startsWith('http') ? 'hidden' : ''}`}>
                     <DemoModelPreview 
                       modelType={model.modelType || getModelTypeFromPrompt(model.prompt || model.name)}
+                      variant={model.variant || 1}
                       className="w-full h-full"
                       autoRotate={true}
                     />
                   </div>
+                  
+                  {/* Variant Badge */}
+                  {model.variant && model.variant > 1 && (
+                    <div className="absolute top-2 right-2">
+                      <div className="px-2 py-0.5 rounded-lg backdrop-blur-sm bg-gray-800/60 text-gray-300 text-xs">
+                        V{model.variant}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Type Badge - Icon only */}
                   <div className="absolute top-2 left-2">
@@ -587,14 +597,20 @@ export default function MyStorage() {
                             <img src={model.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                           ) : (
                             <DemoModelPreview 
-                              modelType={getModelTypeFromPrompt(model.prompt)}
+                              modelType={model.modelType || getModelTypeFromPrompt(model.prompt)}
+                              variant={model.variant || 1}
                               className="w-full h-full"
                               autoRotate={true}
                             />
                           )}
                         </div>
                         <div>
-                          <p className={`font-medium ${currentTheme.text}`}>{model.name}</p>
+                          <p className={`font-medium ${currentTheme.text}`}>
+                            {model.name}
+                            {model.variant && model.variant > 1 && (
+                              <span className="ml-2 text-xs text-gray-400">(V{model.variant})</span>
+                            )}
+                          </p>
                           {model.prompt && (
                             <p className={`text-xs ${currentTheme.textSecondary} truncate max-w-xs`}>{model.prompt}</p>
                           )}
