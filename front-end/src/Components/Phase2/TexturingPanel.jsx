@@ -12,14 +12,41 @@ import {
   Check,
   Sparkles,
   Cpu,
-  Zap
+  Zap,
+  Camera,
+  Paintbrush,
+  Brush,
+  RotateCcw
 } from "lucide-react";
 
+// Texture styles with icons only
 const TEXTURE_STYLES = [
-  { id: "realistic", label: "Realistic", desc: "Photorealistic textures" },
-  { id: "stylized", label: "Stylized", desc: "Artistic/cartoon style" },
-  { id: "pbr", label: "PBR", desc: "Physically based rendering" },
-  { id: "hand-painted", label: "Hand-painted", desc: "Hand-painted look" }
+  { id: "realistic", icon: Camera, tooltip: "Realistic" },
+  { id: "stylized", icon: Paintbrush, tooltip: "Stylized" },
+  { id: "pbr", icon: Layers, tooltip: "PBR" },
+  { id: "hand-painted", icon: Brush, tooltip: "Hand-painted" }
+];
+
+// Color palette for painting
+const COLOR_PALETTE = [
+  // Row 1 - Grays
+  "#ffffff", "#f5f5f5", "#e0e0e0", "#bdbdbd", "#9e9e9e", "#757575", "#424242", "#212121", "#000000",
+  // Row 2 - Reds
+  "#ffebee", "#ffcdd2", "#ef9a9a", "#e57373", "#ef5350", "#f44336", "#e53935", "#d32f2f", "#b71c1c",
+  // Row 3 - Orange
+  "#fff3e0", "#ffe0b2", "#ffcc80", "#ffb74d", "#ffa726", "#ff9800", "#fb8c00", "#f57c00", "#e65100",
+  // Row 4 - Yellow
+  "#fffde7", "#fff9c4", "#fff59d", "#fff176", "#ffee58", "#ffeb3b", "#fdd835", "#fbc02d", "#f9a825",
+  // Row 5 - Green
+  "#e8f5e9", "#c8e6c9", "#a5d6a7", "#81c784", "#66bb6a", "#4caf50", "#43a047", "#388e3c", "#2e7d32",
+  // Row 6 - Cyan
+  "#e0f7fa", "#b2ebf2", "#80deea", "#4dd0e1", "#26c6da", "#00bcd4", "#00acc1", "#0097a7", "#00838f",
+  // Row 7 - Blue
+  "#e3f2fd", "#bbdefb", "#90caf9", "#64b5f6", "#42a5f5", "#2196f3", "#1e88e5", "#1976d2", "#1565c0",
+  // Row 8 - Purple
+  "#f3e5f5", "#e1bee7", "#ce93d8", "#ba68c8", "#ab47bc", "#9c27b0", "#8e24aa", "#7b1fa2", "#6a1b9a",
+  // Row 9 - Pink
+  "#fce4ec", "#f8bbd9", "#f48fb1", "#f06292", "#ec407a", "#e91e63", "#d81b60", "#c2185b", "#ad1457",
 ];
 
 export default function TexturingPanel({
@@ -38,13 +65,16 @@ export default function TexturingPanel({
   isTextured = false,
   currentTopology = "triangle",
   theme = "dark",
-  texturePrompt = "",
-  setTexturePrompt,
   textureStyle = "realistic",
   setTextureStyle,
-  gpuEnabled = false
+  gpuEnabled = false,
+  onColorPaint,
+  paintedColors = {},
+  onClearPaint
 }) {
   const [localBrightness, setLocalBrightness] = useState(brightness);
+  const [selectedColor, setSelectedColor] = useState("#4caf50");
+  const [brushSize, setBrushSize] = useState(50);
 
   const currentTheme = {
     dark: {
@@ -82,6 +112,10 @@ export default function TexturingPanel({
     onBrightnessChange?.(value);
   };
 
+  const handleColorSelect = (color) => {
+    setSelectedColor(color);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -106,18 +140,18 @@ export default function TexturingPanel({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* GPU Status Indicator */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* GPU Status */}
         <div className={`flex items-center gap-2 px-3 py-2 ${gpuEnabled ? (theme === "dark" ? "bg-lime-900/30" : "bg-cyan-100") : "bg-gray-800/50"} rounded-lg`}>
           {gpuEnabled ? (
             <>
               <Zap size={16} className={currentTheme.accentColor} />
-              <span className={`text-sm ${currentTheme.accentColor}`}>GPU Mode - Full AI rendering</span>
+              <span className={`text-xs ${currentTheme.accentColor}`}>GPU Mode</span>
             </>
           ) : (
             <>
               <Cpu size={16} className={currentTheme.textMuted} />
-              <span className={`text-sm ${currentTheme.textMuted}`}>Demo Mode - Connect GPU for full features</span>
+              <span className={`text-xs ${currentTheme.textMuted}`}>Demo Mode</span>
             </>
           )}
         </div>
@@ -125,54 +159,103 @@ export default function TexturingPanel({
         {!isTextured ? (
           /* Apply Texture Section */
           <div className="space-y-4">
-            {/* Texture Prompt Input */}
+            {/* Texture Style - Icons only */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <h3 className={`font-medium mb-2 ${currentTheme.text}`}>Texture Prompt (Optional)</h3>
-              <textarea
-                value={texturePrompt}
-                onChange={(e) => setTexturePrompt?.(e.target.value)}
-                placeholder="Describe the texture style... e.g., 'weathered metal with rust', 'smooth ceramic glaze'"
-                className={`w-full px-3 py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg text-sm ${currentTheme.text} placeholder:${currentTheme.textMuted} focus:outline-none focus:ring-2 focus:ring-lime-500/50 resize-none`}
-                rows={3}
-              />
+              <h3 className={`text-sm font-medium mb-3 ${currentTheme.text}`}>Style</h3>
+              <div className="flex gap-2">
+                {TEXTURE_STYLES.map((style) => {
+                  const Icon = style.icon;
+                  return (
+                    <button
+                      key={style.id}
+                      onClick={() => setTextureStyle?.(style.id)}
+                      title={style.tooltip}
+                      className={`flex-1 p-3 rounded-lg border transition-all flex items-center justify-center ${
+                        textureStyle === style.id
+                          ? `${currentTheme.accentBorder} ${theme === "dark" ? "bg-lime-900/30" : "bg-cyan-100"}`
+                          : `${currentTheme.border} ${currentTheme.hoverBg}`
+                      }`}
+                    >
+                      <Icon 
+                        size={20} 
+                        className={textureStyle === style.id ? currentTheme.accentColor : currentTheme.textSecondary} 
+                      />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Texture Style Selection */}
+            {/* Color Palette */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <h3 className={`font-medium mb-3 ${currentTheme.text}`}>Texture Style</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {TEXTURE_STYLES.map((style) => (
+              <div className="flex items-center justify-between mb-3">
+                <h3 className={`text-sm font-medium ${currentTheme.text}`}>Paint Color</h3>
+                <div className="flex items-center gap-2">
+                  {/* Current color preview */}
+                  <div 
+                    className="w-6 h-6 rounded-lg border-2 border-white/30 shadow-inner"
+                    style={{ backgroundColor: selectedColor }}
+                  />
+                  {/* Clear paint button */}
                   <button
-                    key={style.id}
-                    onClick={() => setTextureStyle?.(style.id)}
-                    className={`p-3 rounded-lg border transition-all ${
-                      textureStyle === style.id
-                        ? `${currentTheme.accentBorder} ${theme === "dark" ? "bg-lime-900/30" : "bg-cyan-100"}`
-                        : `${currentTheme.border} ${currentTheme.hoverBg}`
-                    }`}
+                    onClick={onClearPaint}
+                    title="Clear all paint"
+                    className={`p-1.5 ${currentTheme.hoverBg} rounded-lg transition-colors`}
                   >
-                    <div className={`text-sm font-medium ${textureStyle === style.id ? currentTheme.accentColor : currentTheme.text}`}>
-                      {style.label}
-                    </div>
-                    <div className={`text-xs ${currentTheme.textMuted} mt-1`}>
-                      {style.desc}
-                    </div>
+                    <RotateCcw size={14} className={currentTheme.textMuted} />
                   </button>
+                </div>
+              </div>
+              
+              {/* Color grid */}
+              <div className="grid grid-cols-9 gap-1">
+                {COLOR_PALETTE.map((color, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleColorSelect(color)}
+                    className={`w-full aspect-square rounded transition-all hover:scale-110 ${
+                      selectedColor === color 
+                        ? "ring-2 ring-white ring-offset-1 ring-offset-gray-900" 
+                        : ""
+                    }`}
+                    style={{ backgroundColor: color }}
+                  />
                 ))}
               </div>
+
+              {/* Paint instruction */}
+              <div className={`mt-3 flex items-center gap-2 text-xs ${currentTheme.textMuted}`}>
+                <Brush size={14} />
+                <span>Click & drag on model to paint</span>
+              </div>
+            </div>
+
+            {/* Brush Size */}
+            <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Paintbrush size={16} className={currentTheme.textSecondary} />
+                  <span className={`text-sm font-medium ${currentTheme.text}`}>Brush Size</span>
+                </div>
+                <span className={`text-xs ${currentTheme.textSecondary}`}>{brushSize}%</span>
+              </div>
+              <input
+                type="range"
+                min="10"
+                max="100"
+                value={brushSize}
+                onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                className={`w-full h-2 ${currentTheme.sliderTrack} rounded-full appearance-none cursor-pointer`}
+                style={{
+                  background: `linear-gradient(to right, ${theme === "dark" ? "#84cc16" : "#06b6d4"} 0%, ${theme === "dark" ? "#84cc16" : "#06b6d4"} ${brushSize}%, ${theme === "dark" ? "#374151" : "#d1d5db"} ${brushSize}%, ${theme === "dark" ? "#374151" : "#d1d5db"} 100%)`
+                }}
+              />
             </div>
 
             {/* Apply Button */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <h3 className={`font-medium mb-2 ${currentTheme.text}`}>AI Auto Texture</h3>
-              <p className={`text-sm ${currentTheme.textMuted} mb-4`}>
-                {gpuEnabled 
-                  ? "AI sẽ tạo texture chất lượng cao dựa trên prompt và style của bạn."
-                  : "Demo mode: AI sẽ mô phỏng quá trình texturing."
-                }
-              </p>
               <button
-                onClick={onApplyTexture}
+                onClick={() => onApplyTexture?.({ selectedColor, brushSize, textureStyle })}
                 disabled={isProcessing}
                 className={`w-full py-3 ${currentTheme.accentBg} rounded-xl text-white font-medium ${
                   theme === "dark" ? "hover:bg-lime-400" : "hover:bg-cyan-400"
@@ -181,7 +264,7 @@ export default function TexturingPanel({
                 {isProcessing ? (
                   <>
                     <Loader2 className="animate-spin" size={18} />
-                    {gpuEnabled ? "AI đang xử lý..." : "Đang mô phỏng..."}
+                    Processing...
                   </>
                 ) : (
                   <>
@@ -191,53 +274,46 @@ export default function TexturingPanel({
                 )}
               </button>
             </div>
-
-            <div className={`text-xs ${currentTheme.textMuted} text-center`}>
-              {gpuEnabled ? "Texture sẽ được tạo bằng AI" : "Demo mode - texture mô phỏng"}
-            </div>
           </div>
         ) : (
           /* Texture Controls - After texturing */
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* Status */}
             <div className={`flex items-center gap-2 px-3 py-2 ${theme === "dark" ? "bg-lime-900/30" : "bg-cyan-100"} rounded-lg`}>
               <Check size={16} className={currentTheme.accentColor} />
-              <span className={`text-sm ${currentTheme.accentColor}`}>Texture đã được áp dụng</span>
+              <span className={`text-sm ${currentTheme.accentColor}`}>Texture applied</span>
             </div>
 
             {/* PBR Toggle */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Layers size={18} className={currentTheme.textSecondary} />
-                  <span className={`font-medium ${currentTheme.text}`}>PBR Shading</span>
+                  <span className={`text-sm font-medium ${currentTheme.text}`}>PBR Shading</span>
                 </div>
                 <button
                   onClick={onTogglePBR}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
                     isPBREnabled ? currentTheme.accentBg : currentTheme.sliderTrack
                   }`}
                 >
                   <motion.div
-                    className="absolute top-1 w-4 h-4 bg-white rounded-full shadow"
-                    animate={{ left: isPBREnabled ? "calc(100% - 20px)" : "4px" }}
+                    className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow"
+                    animate={{ left: isPBREnabled ? "calc(100% - 18px)" : "2px" }}
                     transition={{ type: "spring", stiffness: 500, damping: 30 }}
                   />
                 </button>
               </div>
-              <p className={`text-xs ${currentTheme.textMuted}`}>
-                Bật để thêm hiệu ứng đổ bóng PBR realistic
-              </p>
             </div>
 
-            {/* Brightness Control */}
+            {/* Brightness */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Sun size={18} className={currentTheme.textSecondary} />
-                  <span className={`font-medium ${currentTheme.text}`}>Brightness</span>
+                  <span className={`text-sm font-medium ${currentTheme.text}`}>Brightness</span>
                 </div>
-                <span className={`text-sm ${currentTheme.textSecondary}`}>{localBrightness}%</span>
+                <span className={`text-xs ${currentTheme.textSecondary}`}>{localBrightness}%</span>
               </div>
               <input
                 type="range"
@@ -252,61 +328,55 @@ export default function TexturingPanel({
               />
             </div>
 
-            {/* Wireframe Toggle */}
+            {/* Wireframe */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Grid3X3 size={18} className={currentTheme.textSecondary} />
-                  <span className={`font-medium ${currentTheme.text}`}>Wireframe</span>
+                  <span className={`text-sm font-medium ${currentTheme.text}`}>Wireframe</span>
                 </div>
                 <button
                   onClick={onToggleWireframe}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
                     isWireframeEnabled ? currentTheme.accentBg : currentTheme.sliderTrack
                   }`}
                 >
                   <motion.div
-                    className="absolute top-1 w-4 h-4 bg-white rounded-full shadow"
-                    animate={{ left: isWireframeEnabled ? "calc(100% - 20px)" : "4px" }}
+                    className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow"
+                    animate={{ left: isWireframeEnabled ? "calc(100% - 18px)" : "2px" }}
                     transition={{ type: "spring", stiffness: 500, damping: 30 }}
                   />
                 </button>
               </div>
-              <p className={`text-xs ${currentTheme.textMuted}`}>
-                Hiển thị lưới {currentTopology === "quad" ? "tứ giác" : "tam giác"} trên model
-              </p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Footer Actions - Only show after texturing */}
+      {/* Footer Actions */}
       {isTextured && (
-        <div className={`p-4 border-t ${currentTheme.border} space-y-2`}>
+        <div className={`p-4 border-t ${currentTheme.border}`}>
           <div className="grid grid-cols-3 gap-2">
             <button
               onClick={onDownload}
-              className={`py-2.5 ${currentTheme.accentBg} rounded-xl text-white font-medium ${
+              className={`py-2 ${currentTheme.accentBg} rounded-lg text-white text-sm font-medium ${
                 theme === "dark" ? "hover:bg-lime-400" : "hover:bg-cyan-400"
               } transition-colors flex items-center justify-center gap-1`}
             >
-              <Download size={16} />
-              <span className="text-sm">Download</span>
+              <Download size={14} />
             </button>
             <button
               onClick={onRetexture}
               disabled={isProcessing}
-              className={`py-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} ${currentTheme.hoverBg} transition-colors flex items-center justify-center gap-1 disabled:opacity-50`}
+              className={`py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} ${currentTheme.hoverBg} transition-colors flex items-center justify-center gap-1 disabled:opacity-50`}
             >
-              <Palette size={16} />
-              <span className="text-sm">Retexture</span>
+              <Palette size={14} />
             </button>
             <button
               onClick={() => window.location.reload()}
-              className={`py-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} ${currentTheme.hoverBg} transition-colors flex items-center justify-center gap-1`}
+              className={`py-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} ${currentTheme.hoverBg} transition-colors flex items-center justify-center gap-1`}
             >
-              <RefreshCw size={16} />
-              <span className="text-sm">Retry</span>
+              <RefreshCw size={14} />
             </button>
           </div>
         </div>

@@ -7,7 +7,7 @@ const TOPOLOGY_OPTIONS = [
   {
     id: "triangle",
     label: "Triangle",
-    description: "Dạng tam giác - Phù hợp cho game và render realtime",
+    description: "Triangle mesh - Best for games & realtime rendering",
     icon: Triangle,
     preview: (
       <svg viewBox="0 0 100 100" className="w-20 h-20">
@@ -20,7 +20,7 @@ const TOPOLOGY_OPTIONS = [
   {
     id: "quad",
     label: "Quad",
-    description: "Dạng tứ giác - Dễ chỉnh sửa trong Blender, Maya",
+    description: "Quad mesh - Easy to edit in Blender, Maya",
     icon: Grid3X3,
     preview: (
       <svg viewBox="0 0 100 100" className="w-20 h-20">
@@ -109,7 +109,7 @@ export default function RemeshModal({
 
           {/* Description */}
           <p className={`${currentTheme.textSecondary} text-sm mb-6`}>
-            Chọn topology cho model. Việc remesh sẽ tái cấu trúc lưới 3D của model.
+            Choose topology for your model. Remeshing will restructure the 3D mesh.
           </p>
 
           {/* Topology Options */}
@@ -153,8 +153,8 @@ export default function RemeshModal({
           {/* Info box */}
           <div className={`${currentTheme.cardBg} rounded-lg p-3 mb-6`}>
             <p className={`text-xs ${currentTheme.textMuted}`}>
-              <strong className={currentTheme.textSecondary}>Lưu ý:</strong> Quad topology phù hợp hơn cho việc chỉnh sửa 
-              và animation, trong khi Triangle phù hợp cho game engines và real-time rendering.
+              <strong className={currentTheme.textSecondary}>Note:</strong> Quad topology is better for editing 
+              and animation, while Triangle is best for game engines and real-time rendering.
             </p>
           </div>
 

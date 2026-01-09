@@ -98,32 +98,32 @@ const FEATURES = [
   {
     icon: Zap,
     title: "Faster Performance",
-    description: "Native GPU acceleration cho render 3D mượt mà hơn"
+    description: "Native GPU acceleration for smoother 3D rendering"
   },
   {
     icon: WifiOff,
     title: "Offline Mode",
-    description: "Làm việc không cần internet (một số tính năng AI cần kết nối)"
+    description: "Work without internet (some AI features require connection)"
   },
   {
     icon: RefreshCw,
     title: "Auto Updates",
-    description: "Tự động cập nhật version mới nhất"
+    description: "Automatically update to the latest version"
   },
   {
     icon: HardDrive,
     title: "Local Storage",
-    description: "Lưu trữ projects trực tiếp trên máy"
+    description: "Store projects directly on your computer"
   },
   {
     icon: Shield,
     title: "Secure",
-    description: "Dữ liệu được bảo mật, không upload lên cloud"
+    description: "Data is secure, not uploaded to cloud"
   },
   {
     icon: Smartphone,
     title: "System Integration",
-    description: "Tích hợp với file explorer, drag & drop"
+    description: "Integrate with file explorer, drag & drop"
   }
 ];
 
@@ -183,14 +183,12 @@ export default function DownloadPage() {
     const download = platformData?.downloads.find(d => d.type === downloadType);
     
     if (download) {
-      // In production, this would be the actual download URL
+     
       const downloadUrl = `https://github.com/polyva/polyva-3d/releases/download/v${APP_VERSION}/${download.filename}`;
       
-      // For demo, show alert
-      alert(`Download sẽ bắt đầu: ${download.filename}\n\nURL: ${downloadUrl}\n\nLưu ý: Đây là demo. Trong production, file sẽ được tải từ GitHub Releases.`);
+     
+      alert(`Download will start: ${download.filename}\n\nURL: ${downloadUrl}\n\nNote: This is a demo. In production, the file will be downloaded from GitHub Releases.`);
       
-      // Uncomment for actual download:
-      // window.open(downloadUrl, '_blank');
     }
   };
 
@@ -256,8 +254,8 @@ export default function DownloadPage() {
             transition={{ delay: 0.2 }}
             className={`text-lg ${currentTheme.textSecondary} mb-8 max-w-2xl mx-auto`}
           >
-            Trải nghiệm đầy đủ tính năng với desktop app. 
-            Hiệu suất tốt hơn, làm việc offline, và tích hợp sâu với hệ thống.
+            Experience full features with the desktop app. 
+            Better performance, offline work, and deep system integration.
           </motion.p>
 
           {/* Quick Download Button */}
@@ -389,7 +387,7 @@ export default function DownloadPage() {
                   <div>
                     <h3 className="font-semibold">Prefer Web App?</h3>
                     <p className={`text-sm ${currentTheme.textMuted}`}>
-                      Không cần cài đặt, chạy trực tiếp trên browser
+                      No installation needed, run directly in your browser
                     </p>
                   </div>
                 </div>

@@ -1,11 +1,10 @@
 
 
+@import './styles/desktop.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Desktop App Styles */
-@import './styles/desktop.css';
 
 /* Theme transition */
 * {

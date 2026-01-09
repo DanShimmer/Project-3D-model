@@ -120,7 +120,22 @@ export default function MyStorage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (res.ok) {
-        setModels(models.filter((m) => m._id !== modelId));
+        const newModels = models.filter((m) => m._id !== modelId);
+        setModels(newModels);
+        
+        // Recalculate total pages after deletion
+        // If current page becomes empty after deletion, go back to previous page
+        const itemsPerPage = 12;
+        const remainingItems = newModels.length;
+        
+        // If the current page is now empty and it's not the first page
+        if (remainingItems === 0 && currentPage > 1) {
+          setCurrentPage(currentPage - 1);
+        }
+        
+        // Re-fetch to get correct total pages from server
+        // This ensures pagination is synced with actual data
+        setTimeout(() => fetchModels(), 100);
       }
     } catch (err) {
       console.error("Error deleting model:", err);

@@ -1553,18 +1553,6 @@ f 7 1 3 5
                   >
                     <Save size={18} />
                   </button>
-                  {/* Download with dropdown */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowDownloadMenu(!showDownloadMenu)}
-                      disabled={!selectedGeneratedModel}
-                      title="Download"
-                      className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50 flex items-center gap-1`}
-                    >
-                      <Download size={18} />
-                      <ChevronDown size={12} />
-                    </button>
-                  </div>
                   {/* Remesh */}
                   <button
                     onClick={() => setShowRemeshModal(true)}
@@ -1653,11 +1641,10 @@ f 7 1 3 5
                             onClick={() => setShowDownloadMenu(!showDownloadMenu)}
                             className={`p-3 ${currentTheme.accentBg} rounded-xl text-white ${
                               theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'
-                            } transition-all shadow-lg flex items-center gap-2`}
+                            } transition-all shadow-lg`}
                             title="Download"
                           >
                             <Download size={20} />
-                            <ChevronDown size={16} />
                           </button>
                           {showDownloadMenu && (
                             <DownloadMenu
@@ -1834,34 +1821,19 @@ f 7 1 3 5
                       <Save size={20} />
                     </button>
                     
-                    {/* Download */}
-                    <button
-                      onClick={handleDownloadSelected}
-                      disabled={!selectedGeneratedModel}
-                      title="Download Model"
-                      className={`p-2.5 rounded-xl transition-all ${
-                        selectedGeneratedModel
-                          ? `${currentTheme.cardBg} border ${currentTheme.border} ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
-                          : `${currentTheme.cardBg} ${currentTheme.textMuted} cursor-not-allowed`
-                      }`}
-                    >
-                      <Save size={20} />
-                    </button>
-                    
                     {/* Download with format menu */}
                     <div className="relative">
                       <button
                         onClick={() => setShowDownloadMenu(!showDownloadMenu)}
                         disabled={!selectedGeneratedModel}
                         title="Download Model"
-                        className={`p-2.5 rounded-xl transition-all flex items-center gap-1 ${
+                        className={`p-2.5 rounded-xl transition-all ${
                           selectedGeneratedModel
                             ? `${currentTheme.accentBg} text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} shadow-lg ${theme === 'dark' ? 'shadow-lime-500/30' : 'shadow-cyan-500/30'}`
                             : `${currentTheme.cardBg} ${currentTheme.textMuted} cursor-not-allowed`
                         }`}
                       >
                         <Download size={20} />
-                        <ChevronDown size={14} />
                       </button>
                       {showDownloadMenu && (
                         <DownloadMenu
@@ -1973,13 +1945,6 @@ f 7 1 3 5
                       className={`p-2 ${currentTheme.cardBg} rounded-lg ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-colors`}
                     >
                       <Save size={18} className={currentTheme.textSecondary} />
-                    </button>
-                    <button 
-                      onClick={handleDownloadSelected}
-                      title="Download"
-                      className={`p-2 ${currentTheme.cardBg} rounded-lg ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-colors`}
-                    >
-                      <Download size={18} className={currentTheme.textSecondary} />
                     </button>
                     <button 
                       onClick={handleShare}
@@ -2319,6 +2284,8 @@ f 7 1 3 5
         onConfirmRig={handleConfirmRig}
         isProcessing={isRigging}
         theme={theme}
+        modelType={selectedGeneratedModel?.modelType || "robot"}
+        modelVariant={selectedGeneratedModel?.variant || 1}
       />
 
       {/* Animation Panel */}

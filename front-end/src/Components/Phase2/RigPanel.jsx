@@ -9,29 +9,31 @@ import {
   Check,
   Move,
   Loader2,
-  Info
+  Info,
+  AlertTriangle
 } from "lucide-react";
+import { DemoModelPreview } from "../DemoModels";
 
 // Character types for rigging
 const CHARACTER_TYPES = [
   {
     id: "humanoid",
     label: "Humanoid",
-    description: "Nhân vật dạng người - 2 chân, 2 tay",
+    description: "Human character - 2 legs, 2 arms",
     icon: User,
     image: "👤"
   },
   {
     id: "quadruped-dog",
     label: "Quadruped Dog",
-    description: "Động vật 4 chân dạng chó",
+    description: "4-legged animal - dog type",
     icon: Dog,
     image: "🐕"
   },
   {
     id: "quadruped-cat",
     label: "Quadruped Cat",
-    description: "Động vật 4 chân dạng mèo",
+    description: "4-legged animal - cat type",
     icon: Dog,
     image: "🐱",
     comingSoon: true
@@ -95,7 +97,9 @@ export default function RigPanel({
   onConfirmRig,
   onEnableAnimation,
   isProcessing = false,
-  theme = "dark"
+  theme = "dark",
+  modelType = "robot", // Only robot can be rigged in demo
+  modelVariant = 1
 }) {
   const [step, setStep] = useState(1); // 1: Select type, 2: Place markers
   const [selectedType, setSelectedType] = useState(null);
@@ -103,6 +107,9 @@ export default function RigPanel({
   const [symmetryEnabled, setSymmetryEnabled] = useState(true);
   const [draggingMarker, setDraggingMarker] = useState(null);
   const canvasRef = useRef(null);
+  
+  // Only robot model can be rigged in demo
+  const canRig = modelType === "robot";
 
   const currentTheme = {
     dark: {
@@ -160,9 +167,36 @@ export default function RigPanel({
   };
 
   const handleMarkerDrag = (markerId, newPosition) => {
-    setMarkers(prev => prev.map(m => 
-      m.id === markerId ? { ...m, position: newPosition } : m
-    ));
+    setMarkers(prev => {
+      // Check if this is a paired marker (has -a or -b suffix)
+      const isMarkerA = markerId.endsWith("-a");
+      const isMarkerB = markerId.endsWith("-b");
+      
+      // If symmetry is enabled and this is a paired marker, move both
+      if (symmetryEnabled && (isMarkerA || isMarkerB)) {
+        const baseId = markerId.replace(/-[ab]$/, "");
+        const siblingId = isMarkerA ? `${baseId}-b` : `${baseId}-a`;
+        
+        // Calculate mirrored X position (symmetric around center line at x=50)
+        const mirroredX = 100 - newPosition.x;
+        
+        return prev.map(m => {
+          if (m.id === markerId) {
+            return { ...m, position: newPosition };
+          }
+          if (m.id === siblingId) {
+            // Move sibling to mirrored position
+            return { ...m, position: { x: mirroredX, y: newPosition.y } };
+          }
+          return m;
+        });
+      }
+      
+      // Non-paired marker or symmetry disabled - just move the one marker
+      return prev.map(m => 
+        m.id === markerId ? { ...m, position: newPosition } : m
+      );
+    });
   };
 
   const handleConfirm = () => {
@@ -193,18 +227,30 @@ export default function RigPanel({
         >
           {/* Left side - Model preview */}
           <div className="flex-1 bg-black/50 relative min-h-[500px] flex items-center justify-center">
-            {/* Model preview placeholder */}
+            {/* Model preview with 3D robot */}
             <div className="relative w-full h-full" ref={canvasRef}>
-              {/* Placeholder for 3D model with markers */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center text-gray-500">
-                  <div className="w-32 h-64 mx-auto border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center">
-                    {step === 2 && (
-                      <span className="text-xs">Model với markers</span>
-                    )}
+              {/* 3D Model preview */}
+              {canRig ? (
+                <div className="absolute inset-0">
+                  <DemoModelPreview
+                    modelType={modelType}
+                    variant={modelVariant}
+                    autoRotate={step === 1}
+                    className="w-full h-full"
+                  />
+                </div>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center p-8">
+                    <AlertTriangle size={48} className="mx-auto mb-4 text-amber-500" />
+                    <h3 className={`text-lg font-medium ${currentTheme.text} mb-2`}>Cannot Rig This Model</h3>
+                    <p className={`text-sm ${currentTheme.textMuted}`}>
+                      Only humanoid models (like robot) can be rigged.
+                      <br />This model type is not supported for rigging.
+                    </p>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Symmetry line */}
               {step === 2 && symmetryEnabled && (

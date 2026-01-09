@@ -66,15 +66,21 @@ export default function DownloadMenu({
     };
   }, [isOpen, onClose]);
 
-  const handleDownload = (format) => {
+  const handleSelectFormat = (format) => {
     if (format.pro && !isPro) {
       // Show pro upgrade prompt
-      alert("Tính năng này yêu cầu gói PRO. Vui lòng nâng cấp để sử dụng.");
+      alert("This feature requires PRO plan. Please upgrade to use.");
       return;
     }
     setSelectedFormat(format.id);
-    onDownload(format.id, modelName);
-    onClose();
+  };
+
+  const handleDownload = () => {
+    const format = DOWNLOAD_FORMATS.find(f => f.id === selectedFormat);
+    if (format) {
+      onDownload(format.id, modelName);
+      onClose();
+    }
   };
 
   if (!isOpen) return null;
@@ -83,27 +89,27 @@ export default function DownloadMenu({
     <AnimatePresence>
       <motion.div
         ref={menuRef}
-        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+        initial={{ opacity: 0, y: 10, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+        exit={{ opacity: 0, y: 10, scale: 0.95 }}
         transition={{ duration: 0.15 }}
-        className={`absolute right-0 top-full mt-2 w-56 ${currentTheme.bg} border ${currentTheme.border} rounded-xl shadow-2xl overflow-hidden z-50`}
+        className={`absolute right-0 bottom-full mb-2 w-56 ${currentTheme.bg} border ${currentTheme.border} rounded-xl shadow-2xl overflow-hidden z-50`}
       >
         {/* Format list */}
         <div className="py-2 max-h-80 overflow-y-auto">
           {DOWNLOAD_FORMATS.map((format) => (
             <button
               key={format.id}
-              onClick={() => handleDownload(format)}
+              onClick={() => handleSelectFormat(format)}
               className={`w-full px-4 py-3 flex items-center justify-between ${currentTheme.hoverBg} transition-colors ${
                 format.pro && !isPro ? "opacity-60" : ""
-              }`}
+              } ${selectedFormat === format.id ? (theme === "dark" ? "bg-lime-500/10" : "bg-cyan-500/10") : ""}`}
             >
               <div className="flex items-center gap-3">
                 <span className={`font-medium ${currentTheme.text}`}>
                   {format.label.toLowerCase()}
                 </span>
-                {format.default && (
+                {selectedFormat === format.id && (
                   <Check size={14} className={currentTheme.accentColor} />
                 )}
               </div>
@@ -130,16 +136,13 @@ export default function DownloadMenu({
         {/* Download button */}
         <div className="p-3 border-t border-gray-800/50">
           <button
-            onClick={() => handleDownload(DOWNLOAD_FORMATS.find(f => f.id === selectedFormat))}
+            onClick={handleDownload}
             className={`w-full py-3 ${currentTheme.accentBg} rounded-xl text-white font-medium ${
               theme === "dark" ? "hover:bg-lime-400" : "hover:bg-cyan-400"
             } transition-colors flex items-center justify-center gap-2`}
           >
             <Download size={18} />
-            Download
-            {isPro && (
-              <span className="ml-1 px-1.5 py-0.5 bg-white/20 rounded text-xs">PRO</span>
-            )}
+            Download .{selectedFormat}
           </button>
         </div>
       </motion.div>
