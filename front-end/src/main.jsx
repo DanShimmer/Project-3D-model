@@ -19,83 +19,61 @@ import Contact from "./Pages/Contact";
 import AdminDashboard from "./Pages/AdminDashboard";
 import MyStorage from "./Pages/MyStorage";
 import DownloadApp from "./Pages/DownloadApp";
+import DesktopLayout from "./Components/DesktopLayout";
 import "./index.css";
 
-// Route definitions
-const routes = [
+// ===== Web Routes (browser) =====
+const webRoutes = [
+  { path: "/", element: <Landpage /> },
+  { path: "/signup", element: <Signup /> },
+  { path: "/verify-otp", element: <VerifyOtp /> },
+  { path: "/login", element: <Login /> },
+  { path: "/forgot-password", element: <ForgotPassword /> },
+  { path: "/showcase", element: <Showcase /> },
+  { path: "/text-to-3d", element: <GeneratePage /> },
+  { path: "/image-to-3d", element: <GeneratePage /> },
+  { path: "/generate", element: <GeneratePage /> },
+  { path: "/blogs", element: <Blogs /> },
+  { path: "/docs", element: <Document /> },
+  { path: "/tutorials", element: <Tutorial /> },
+  { path: "/help", element: <HelpCenter /> },
+  { path: "/contact", element: <Contact /> },
+  { path: "/admin", element: <AdminDashboard /> },
+  { path: "/my-storage", element: <MyStorage /> },
+  { path: "/download", element: <DownloadApp /> },
+];
+
+// ===== Desktop Routes (Electron) =====
+// Wrapped in DesktopLayout with custom titlebar + sidebar
+const desktopRoutes = [
   {
-    path: "/",
-    element: <Landpage />
-  },
-  {
-    path: "/signup",
-    element: <Signup />
-  },
-  {
-    path: "/verify-otp",
-    element: <VerifyOtp />
-  },
-  {
-    path: "/login",
-    element: <Login />
-  },
-  {
-    path: "/forgot-password",
-    element: <ForgotPassword />
-  },
-  {
-    path: "/showcase",
-    element: <Showcase />
-  },
-  {
-    path: "/text-to-3d",
-    element: <GeneratePage />
-  },
-  {
-    path: "/image-to-3d",
-    element: <GeneratePage />
-  },
-  {
-    path: "/generate",
-    element: <GeneratePage />
-  },
-  {
-    path: "/blogs",
-    element: <Blogs />
-  },
-  {
-    path: "/docs",
-    element: <Document />
-  },
-  {
-    path: "/tutorials",
-    element: <Tutorial />
-  },
-  {
-    path: "/help",
-    element: <HelpCenter />
-  },
-  {
-    path: "/contact",
-    element: <Contact />
-  },
-  {
-    path: "/admin",
-    element: <AdminDashboard />
-  },
-  {
-    path: "/my-storage",
-    element: <MyStorage />
-  },
-  {
-    path: "/download",
-    element: <DownloadApp />
+    element: <DesktopLayout />,
+    children: [
+      { path: "/", element: <GeneratePage /> },
+      { path: "/generate", element: <GeneratePage /> },
+      { path: "/text-to-3d", element: <GeneratePage /> },
+      { path: "/image-to-3d", element: <GeneratePage /> },
+      { path: "/showcase", element: <Showcase /> },
+      { path: "/my-storage", element: <MyStorage /> },
+      { path: "/login", element: <Login /> },
+      { path: "/signup", element: <Signup /> },
+      { path: "/verify-otp", element: <VerifyOtp /> },
+      { path: "/forgot-password", element: <ForgotPassword /> },
+      { path: "/admin", element: <AdminDashboard /> },
+    ]
   }
 ];
 
-// Use HashRouter for Electron (file:// protocol), BrowserRouter for web
-const createRouter = isElectron() ? createHashRouter : createBrowserRouter;
+// Choose router and routes based on environment
+const isDesktop = isElectron();
+const createRouter = isDesktop ? createHashRouter : createBrowserRouter;
+const routes = isDesktop ? desktopRoutes : webRoutes;
 const router = createRouter(routes);
+
+// Add electron class to body for CSS overrides
+if (isDesktop) {
+  document.body.classList.add('electron-app');
+}
 
 const rootEl = document.getElementById("root");
 if (rootEl) {

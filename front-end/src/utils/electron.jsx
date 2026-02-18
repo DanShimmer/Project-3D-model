@@ -1,8 +1,11 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
 // ========== Electron Detection ==========
 export const isElectron = () => {
-  return typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+  if (typeof window === 'undefined') return false;
+  // Check via preload API first (most reliable), then user agent
+  return window.electronAPI?.isElectron === true ||
+    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron'));
 };
 
 // ========== Context for Electron State ==========
@@ -11,28 +14,33 @@ const ElectronContext = createContext(null);
 export const useElectron = () => {
   const context = useContext(ElectronContext);
   return context || {
-    isElectronApp: false,
+    isElectronApp: isElectron(),
     windowState: 'normal',
-    appInfo: null,
-    updateStatus: null
+    minimize: () => window.electronAPI?.minimize(),
+    maximize: () => window.electronAPI?.maximize(),
+    close: () => window.electronAPI?.close(),
   };
 };
 
-// ========== Electron Provider (Web stub) ==========
+// ========== Electron Provider ==========
 export function ElectronProvider({ children }) {
-  // For web, just pass through children without any electron functionality
+  const isDesktop = isElectron();
+  const [windowState, setWindowState] = useState('normal');
+
+  useEffect(() => {
+    if (isDesktop && window.electronAPI?.onMaximizeChange) {
+      window.electronAPI.onMaximizeChange((isMax) => {
+        setWindowState(isMax ? 'maximized' : 'normal');
+      });
+    }
+  }, [isDesktop]);
+
   const value = {
-    isElectronApp: false,
-    windowState: 'normal',
-    appInfo: null,
-    updateStatus: null,
-    minimize: () => {},
-    maximize: () => {},
-    close: () => {},
-    fullscreen: () => {},
-    checkForUpdates: () => {},
-    showSaveDialog: () => null,
-    showOpenDialog: () => null
+    isElectronApp: isDesktop,
+    windowState,
+    minimize: () => window.electronAPI?.minimize(),
+    maximize: () => window.electronAPI?.maximize(),
+    close: () => window.electronAPI?.close(),
   };
 
   return (

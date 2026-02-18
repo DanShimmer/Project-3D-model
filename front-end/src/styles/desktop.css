@@ -4,42 +4,99 @@
 
 /* Electron App Detection */
 .electron-app {
-  /* Prevent text selection on titlebar and controls */
   -webkit-user-select: none;
   user-select: none;
+  overflow: hidden;
 }
 
-/* Custom scrollbar for desktop */
+/* Allow text selection in content area */
+.electron-app .desktop-content,
+.electron-app .desktop-content * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ========================================
+   Desktop Layout: Hide web-style headers
+   ======================================== */
+
+/* Hide ALL web navigation headers inside desktop content area.
+   The desktop sidebar handles navigation instead. */
+body.electron-app .desktop-content > div > header,
+body.electron-app .desktop-content > div > div > header,
+body.electron-app .desktop-content header[class*="fixed"],
+body.electron-app .desktop-content header[class*="backdrop"] {
+  display: none !important;
+}
+
+/* Convert fixed-position canvases to absolute so they stay in content area */
+body.electron-app .desktop-content canvas[class*="fixed"],
+body.electron-app .desktop-content > div > canvas {
+  position: absolute !important;
+}
+
+/* Remove top padding that was for the now-hidden web headers */
+body.electron-app .desktop-content .pt-14 {
+  padding-top: 0 !important;
+}
+body.electron-app .desktop-content .pt-16 {
+  padding-top: 0 !important;
+}
+body.electron-app .desktop-content .pt-20 {
+  padding-top: 0 !important;
+}
+body.electron-app .desktop-content main {
+  padding-top: 0 !important;
+}
+
+/* Ensure desktop content fills available space */
+body.electron-app .desktop-content > div {
+  min-height: 100%;
+}
+
+/* ========================================
+   Custom Scrollbar for Desktop
+   ======================================== */
+
 .electron-app ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .electron-app ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 4px;
+  background: transparent;
 }
 
 .electron-app ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
 }
 
 .electron-app ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.22);
 }
 
-/* Light theme scrollbar */
-.electron-app.light-theme ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.05);
+/* ========================================
+   Titlebar Styles
+   ======================================== */
+
+.desktop-titlebar {
+  -webkit-app-region: drag;
+  z-index: 9999;
 }
 
-.electron-app.light-theme ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+.desktop-titlebar button,
+.desktop-titlebar a,
+.desktop-titlebar input {
+  -webkit-app-region: no-drag;
 }
 
-.electron-app.light-theme ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
+/* ========================================
+   Sidebar Styles
+   ======================================== */
+
+.desktop-sidebar {
+  z-index: 100;
 }
 
 /* ========================================
@@ -104,11 +161,6 @@
   -webkit-app-region: no-drag;
 }
 
-/* Titlebar offset for content */
-.titlebar-offset {
-  padding-top: 32px; /* Height of custom titlebar */
-}
-
 /* Desktop button hover effects */
 .desktop-button {
   transition: all 0.15s ease;
@@ -171,12 +223,10 @@
    ======================================== */
 
 .model-viewer-container {
-  /* Better rendering for 3D content */
   transform: translateZ(0);
   will-change: transform;
 }
 
-/* GPU acceleration hint */
 .gpu-accelerated {
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
@@ -296,7 +346,6 @@
   border-left: 3px solid #f59e0b;
 }
 
-/* Light theme toast */
 .light-theme .desktop-toast {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(0, 0, 0, 0.1);
@@ -311,7 +360,6 @@
     image-rendering: -webkit-optimize-contrast;
   }
   
-  /* Sharper icons */
   svg {
     shape-rendering: geometricPrecision;
   }
@@ -334,8 +382,8 @@
    ======================================== */
 
 @media print {
-  .electron-titlebar,
-  .sidebar,
+  .desktop-titlebar,
+  .desktop-sidebar,
   .floating-panel {
     display: none !important;
   }
@@ -346,5 +394,44 @@
     left: 0;
     width: 100%;
     height: 100%;
+  }
+}
+
+/* ========================================
+   Mobile Responsive (Web version)
+   ======================================== */
+
+@media (max-width: 640px) {
+  /* Stack layout on small screens */
+  .max-w-7xl {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+  
+  /* Full width cards on mobile */
+  .grid-cols-2,
+  .grid-cols-3,
+  .grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Adjust hero text sizes */
+  .text-5xl { font-size: 2rem !important; }
+  .text-6xl { font-size: 2.25rem !important; }
+  .text-7xl { font-size: 2.5rem !important; }
+  
+  /* Mobile-friendly buttons */
+  .gap-4 > a,
+  .gap-4 > button {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  /* Tablet adjustments */
+  .grid-cols-3,
+  .grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
   }
 }
