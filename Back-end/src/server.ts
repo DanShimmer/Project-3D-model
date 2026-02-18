@@ -2,6 +2,7 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
+import path from "path";
 import authRoutes from "./routes/auth";
 import adminRoutes from "./routes/admin";
 import modelRoutes from "./routes/model";
@@ -15,6 +16,17 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Serve desktop app release files for download
+const releasePath = path.resolve(__dirname, "../../front-end/release");
+app.use("/downloads", express.static(releasePath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.exe')) {
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(filePath)}"`);
+    }
+  }
+}));
 
 // Routes
 app.use("/api/auth", authRoutes);

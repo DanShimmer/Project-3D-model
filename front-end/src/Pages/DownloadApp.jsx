@@ -183,7 +183,10 @@ export default function DownloadPage() {
     const download = platformData?.downloads.find(d => d.type === downloadType);
     
     if (download) {
-      const downloadUrl = `https://github.com/DanShimmer/Project-3D-model/releases/download/v${APP_VERSION}/${download.filename}`;
+      // Download from local backend server (served from front-end/release/)
+      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const backendBase = API_BASE.replace('/api', '');
+      const downloadUrl = `${backendBase}/downloads/${download.filename}`;
       
       // Direct download via hidden link
       const link = document.createElement('a');
