@@ -42,7 +42,7 @@ const PLATFORMS = [
       {
         type: "portable",
         label: "Portable (.exe)",
-        filename: `Polyva-3D-${APP_VERSION}-x64.exe`,
+        filename: `Polyva-3D-${APP_VERSION}-x64-Portable.exe`,
         size: "~80 MB",
         recommended: false
       }
@@ -183,24 +183,15 @@ export default function DownloadPage() {
     const download = platformData?.downloads.find(d => d.type === downloadType);
     
     if (download) {
-      // GitHub Releases page - user can download from there
-      const releasesUrl = `https://github.com/DanShimmer/Project-3D-model/releases/tag/v${APP_VERSION}`;
-      
-      // Try direct download first, fallback to releases page
       const downloadUrl = `https://github.com/DanShimmer/Project-3D-model/releases/download/v${APP_VERSION}/${download.filename}`;
       
-      // Create hidden iframe to test if file exists, then download
+      // Direct download via hidden link
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = download.filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
-      // Also open releases page in case direct download fails
-      setTimeout(() => {
-        window.open(releasesUrl, '_blank');
-      }, 1000);
     }
   };
 
@@ -224,7 +215,7 @@ export default function DownloadPage() {
               Docs
             </Link>
             <a 
-              href="https://github.com/polyva/polyva-3d" 
+              href="https://github.com/DanShimmer/Project-3D-model" 
               target="_blank" 
               rel="noopener noreferrer"
               className={`flex items-center gap-2 ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}
@@ -495,7 +486,7 @@ export default function DownloadPage() {
       <section className={`py-12 px-6 border-t ${currentTheme.border}`}>
         <div className="max-w-4xl mx-auto text-center">
           <a
-            href="https://github.com/polyva/polyva-3d/releases"
+            href="https://github.com/DanShimmer/Project-3D-model/releases"
             target="_blank"
             rel="noopener noreferrer"
             className={`inline-flex items-center gap-3 px-6 py-3 rounded-xl ${currentTheme.cardBg} border ${currentTheme.border} ${currentTheme.hoverBg} transition-colors`}
@@ -520,7 +511,7 @@ export default function DownloadPage() {
           <div className={`flex items-center gap-6 text-sm ${currentTheme.textSecondary}`}>
             <Link to="/docs" className={`hover:${currentTheme.text}`}>Documentation</Link>
             <Link to="/help" className={`hover:${currentTheme.text}`}>Support</Link>
-            <a href="https://github.com/polyva/polyva-3d" className={`hover:${currentTheme.text}`}>GitHub</a>
+            <a href="https://github.com/DanShimmer/Project-3D-model" className={`hover:${currentTheme.text}`}>GitHub</a>
           </div>
         </div>
       </footer>

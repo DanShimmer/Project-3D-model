@@ -12,7 +12,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/polyva/polyva-3d"
+    "url": "https://github.com/DanShimmer/Project-3D-model"
   },
   "scripts": {
     "dev": "vite",
@@ -64,8 +64,11 @@
         }
       ],
       "icon": "public/icon.ico",
-      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}",
+      "artifactName": "Polyva-3D-${version}-${arch}-Setup.${ext}",
       "publisherName": "Polyva Team"
+    },
+    "portable": {
+      "artifactName": "Polyva-3D-${version}-${arch}-Portable.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -93,7 +96,7 @@
       ],
       "icon": "public/icon.icns",
       "category": "public.app-category.graphics-design",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "Polyva-3D-${version}-${arch}.${ext}",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "electron/entitlements.mac.plist",
@@ -134,14 +137,14 @@
       ],
       "icon": "public/icons",
       "category": "Graphics",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "Polyva-3D-${version}-${arch}.${ext}",
       "synopsis": "AI-powered 3D model generation",
       "description": "Create stunning 3D models from text or images using AI"
     },
     "publish": {
       "provider": "github",
-      "owner": "polyva",
-      "repo": "polyva-3d",
+      "owner": "DanShimmer",
+      "repo": "Project-3D-model",
       "releaseType": "release"
     }
   },

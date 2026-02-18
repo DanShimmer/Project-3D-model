@@ -1,0 +1,160 @@
+name: Build & Release Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: front-end/package-lock.json
+
+      - name: Install dependencies
+        working-directory: front-end
+        run: npm ci
+
+      - name: Build & Package (Windows)
+        working-directory: front-end
+        run: npm run build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-builds
+          path: |
+            front-end/release/*.exe
+            front-end/release/*.msi
+          retention-days: 5
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: front-end/package-lock.json
+
+      - name: Install dependencies
+        working-directory: front-end
+        run: npm ci
+
+      - name: Build & Package (macOS)
+        working-directory: front-end
+        run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-builds
+          path: |
+            front-end/release/*.dmg
+            front-end/release/*.zip
+          retention-days: 5
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: front-end/package-lock.json
+
+      - name: Install dependencies
+        working-directory: front-end
+        run: npm ci
+
+      - name: Build & Package (Linux)
+        working-directory: front-end
+        run: npm run build:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-builds
+          path: |
+            front-end/release/*.AppImage
+            front-end/release/*.deb
+            front-end/release/*.rpm
+          retention-days: 5
+
+  create-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | head -50
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.version }}
+          name: "Polyva 3D ${{ github.ref_name || github.event.inputs.version }}"
+          body: |
+            ## 🚀 Polyva 3D Desktop App
+
+            ### Downloads
+            | Platform | File | Type |
+            |----------|------|------|
+            | 🪟 Windows | `Polyva-3D-*-Setup.exe` | Installer (Recommended) |
+            | 🪟 Windows | `Polyva-3D-*.exe` | Portable |
+            | 🍎 macOS | `Polyva-3D-*.dmg` | DMG Installer |
+            | 🍎 macOS | `Polyva-3D-*.zip` | ZIP Archive |
+            | 🐧 Linux | `Polyva-3D-*.AppImage` | AppImage |
+            | 🐧 Linux | `Polyva-3D-*.deb` | Debian Package |
+
+            ### What's New
+            - AI-powered 3D model generation from text & images
+            - GPU-optimized for RTX 3060 12GB
+            - Remesh, Texture, Rigging & Animation pipeline
+            - Dark/Light theme support
+
+            ### System Requirements
+            - **Windows**: Windows 10+ (64-bit), 4GB RAM
+            - **macOS**: macOS 11+, Intel or Apple Silicon
+            - **Linux**: Ubuntu 20.04+ / Fedora 34+
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
