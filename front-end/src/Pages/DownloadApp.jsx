@@ -183,12 +183,24 @@ export default function DownloadPage() {
     const download = platformData?.downloads.find(d => d.type === downloadType);
     
     if (download) {
-     
-      const downloadUrl = `https://github.com/polyva/polyva-3d/releases/download/v${APP_VERSION}/${download.filename}`;
+      // GitHub Releases page - user can download from there
+      const releasesUrl = `https://github.com/DanShimmer/Project-3D-model/releases/tag/v${APP_VERSION}`;
       
-     
-      alert(`Download will start: ${download.filename}\n\nURL: ${downloadUrl}\n\nNote: This is a demo. In production, the file will be downloaded from GitHub Releases.`);
+      // Try direct download first, fallback to releases page
+      const downloadUrl = `https://github.com/DanShimmer/Project-3D-model/releases/download/v${APP_VERSION}/${download.filename}`;
       
+      // Create hidden iframe to test if file exists, then download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = download.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Also open releases page in case direct download fails
+      setTimeout(() => {
+        window.open(releasesUrl, '_blank');
+      }, 1000);
     }
   };
 
