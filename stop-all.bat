@@ -1,16 +1,19 @@
 @echo off
-:: ============================================
-:: Tắt tất cả services
-:: ============================================
-
-echo Stopping all services...
-
-:: Tắt các process Python (AI Service)
-taskkill /F /IM python.exe 2>nul
-
-:: Tắt các process Node (Backend & Frontend)
-taskkill /F /IM node.exe 2>nul
+title Polyva 3D - Stop All
 
 echo.
-echo ✅ All services stopped!
+echo  Stopping all services...
+echo.
+
+taskkill /FI "WINDOWTITLE eq AI-Service*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Backend*" /F 2>nul
+taskkill /FI "WINDOWTITLE eq Frontend*" /F 2>nul
+
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr :3000 ^| findstr LISTENING') do taskkill /PID %%a /F 2>nul
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr :5000 ^| findstr LISTENING') do taskkill /PID %%a /F 2>nul
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr :5001 ^| findstr LISTENING') do taskkill /PID %%a /F 2>nul
+
+echo.
+echo  All services stopped!
+echo.
 pause

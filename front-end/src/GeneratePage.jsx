@@ -43,6 +43,7 @@ import ModelViewer from "./Components/ModelViewer";
 import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
 import AvatarModal, { getAvatarById } from "./Components/AvatarModal";
 import { LogoIcon } from "./Components/Logo";
+import FeatureTooltip, { FEATURE_DESCRIPTIONS } from "./Components/FeatureTooltip";
 import { genTextTo3D, genImageTo3D, checkAIHealth, updateModelType, updateModelVariant } from "./api/generate";
 import { updateProfile } from "./api/auth";
 import { useAuth } from "./contexts/AuthContext";
@@ -188,6 +189,11 @@ export default function GeneratePage() {
   const [brightness, setBrightness] = useState(100);
   const [texturePrompt, setTexturePrompt] = useState("");
   const [textureStyle, setTextureStyle] = useState("realistic");
+  // Paint mode states
+  const [isPaintMode, setIsPaintMode] = useState(false);
+  const [selectedPaintColor, setSelectedPaintColor] = useState("#4caf50");
+  const [brushSize, setBrushSize] = useState(50);
+  const [paintedColors, setPaintedColors] = useState({});
   // Rig states
   const [showRigPanel, setShowRigPanel] = useState(false);
   const [isRigConfigured, setIsRigConfigured] = useState(false);
@@ -199,6 +205,8 @@ export default function GeneratePage() {
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(false);
   // Phase 2 API status
   const [phase2Available, setPhase2Available] = useState(false);
+  // GPU enabled status
+  const [gpuEnabled, setGpuEnabled] = useState(false);
   
   // Avatar functions
   const handleAvatarChange = async (newAvatar) => {
@@ -215,6 +223,16 @@ export default function GeneratePage() {
       return getAvatarById(user.avatar);
     }
     return null;
+  };
+  
+  // Handle paint on model
+  const handlePaintModel = (newPaintData) => {
+    setPaintedColors(prev => ({ ...prev, ...newPaintData }));
+  };
+  
+  // Clear all paint
+  const handleClearPaint = () => {
+    setPaintedColors({});
   };
   
   // Helper function to determine model type from prompt (same logic as MyStorage)
@@ -305,17 +323,27 @@ export default function GeneratePage() {
     return () => clearInterval(interval);
   }, []);
   
-  // Check Phase 2 API health
+  // Check Phase 2 API health and GPU status
   useEffect(() => {
     const checkPhase2 = async () => {
       try {
         const result = await checkPhase2Health();
-        setPhase2Available(result.status === "healthy");
-        if (result.gpu_enabled) {
-          console.log("Phase 2 GPU features enabled!");
+        setPhase2Available(result.status === "healthy" || result.phase2_enabled);
+        // Check GPU status
+        if (result.gpu?.available && result.gpu?.features_enabled) {
+          setGpuEnabled(true);
+          console.log("✅ Phase 2 GPU features enabled:", result.gpu.gpu_name);
+        } else if (result.phase2_enabled && !result.demo_mode) {
+          setGpuEnabled(true);
+          console.log("✅ Phase 2 features enabled (GPU mode)");
+        } else {
+          setGpuEnabled(false);
+          console.log("ℹ️ Phase 2 running in demo mode");
         }
-      } catch {
+      } catch (err) {
+        console.warn("Phase 2 health check failed:", err);
         setPhase2Available(false);
+        setGpuEnabled(false);
       }
     };
     checkPhase2();
@@ -1050,27 +1078,34 @@ f 7 1 3 5
     // Apply animation via API if model is rigged
     if (isRigConfigured && selectedGeneratedModel) {
       try {
-        const result = await applyAnimation(selectedGeneratedModel, animation.id, {
-          loop: true,
-          speed: 1.0
-        });
+        console.log("Applying animation:", animation.id, "to model:", selectedGeneratedModel);
+        const result = await applyAnimation(selectedGeneratedModel, animation.id);
         
-        if (result.success) {
-          console.log("Animation applied:", result.animation_data);
+        if (result.success || result.ok) {
+          console.log("✅ Animation applied:", result.animated_model_path || result.animatedModelPath);
+          // Auto play after selecting
+          setIsAnimationPlaying(true);
+        } else {
+          console.warn("Animation result:", result);
         }
       } catch (err) {
-        console.warn("Animation in demo mode");
+        console.warn("Animation in demo mode:", err.message);
       }
     }
   };
 
   const handlePlayAnimation = (animationId) => {
+    if (!isRigConfigured) {
+      setError("Please configure Rig before playing animations");
+      return;
+    }
     setIsAnimationPlaying(true);
-    // In real implementation, this would trigger animation playback
+    console.log("▶️ Playing animation:", animationId || currentAnimation);
   };
 
   const handleStopAnimation = () => {
     setIsAnimationPlaying(false);
+    console.log("⏹️ Animation stopped");
   };
 
   // Handle sidebar tool selection
@@ -1247,38 +1282,50 @@ f 7 1 3 5
       
       {/* Main Layout */}
       <div className="flex h-screen pt-14">
-        {/* Left Sidebar - Tools */}
+        {/* Left Sidebar - Tools with Feature Tooltips */}
         <aside className={`w-16 ${currentTheme.navBg} backdrop-blur-xl border-r ${currentTheme.border} flex flex-col items-center py-4 gap-2 transition-colors duration-500`}>
-          {SIDEBAR_TOOLS.map(tool => (
-            <button
-              key={tool.id}
-              onClick={() => handleSidebarToolClick(tool)}
-              disabled={
-                (tool.requiresModel && !selectedGeneratedModel) || 
-                (tool.requiresRig && !isRigConfigured)
-              }
-              className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
-                (tool.requiresModel && !selectedGeneratedModel) || (tool.requiresRig && !isRigConfigured)
-                  ? "opacity-30 cursor-not-allowed"
-                  : activeSidebarTool === tool.id || 
-                    (tool.id === "share" && selectedGeneratedModel) || 
-                    (tool.id === "upload" && showUploadModal) ||
-                    (tool.id === "texture" && showTexturingPanel) ||
-                    (tool.id === "rig" && showRigPanel) ||
-                    (tool.id === "animate" && showAnimationPanel)
-                    ? `${theme === 'dark' ? 'bg-lime-500/20 border-lime-500/30' : 'bg-cyan-500/20 border-cyan-500/30'} ${currentTheme.accentColor} border`
-                    : `${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${currentTheme.textSecondary} hover:${currentTheme.text}`
-              }`}
-              title={tool.requiresModel && !selectedGeneratedModel 
-                ? `${tool.label} (Generate a model first)` 
-                : tool.requiresRig && !isRigConfigured 
-                ? `${tool.label} (Configure rig first)` 
-                : tool.label}
-            >
-              <tool.icon className="w-5 h-5" />
-              <span className="text-[9px]">{tool.label}</span>
-            </button>
-          ))}
+          {SIDEBAR_TOOLS.map(tool => {
+            const featureInfo = FEATURE_DESCRIPTIONS[tool.id];
+            const isDisabled = (tool.requiresModel && !selectedGeneratedModel) || 
+                               (tool.requiresRig && !isRigConfigured);
+            
+            return (
+              <FeatureTooltip
+                key={tool.id}
+                title={featureInfo?.title || tool.label}
+                description={
+                  isDisabled
+                    ? tool.requiresRig 
+                      ? "Cần cấu hình Rig trước khi sử dụng tính năng này"
+                      : "Cần tạo hoặc upload model trước"
+                    : featureInfo?.description || `${tool.label} feature`
+                }
+                shortcut={featureInfo?.shortcut}
+                position="right"
+                delay={800}
+              >
+                <button
+                  onClick={() => handleSidebarToolClick(tool)}
+                  disabled={isDisabled}
+                  className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+                    isDisabled
+                      ? "opacity-30 cursor-not-allowed"
+                      : activeSidebarTool === tool.id || 
+                        (tool.id === "share" && selectedGeneratedModel) || 
+                        (tool.id === "upload" && showUploadModal) ||
+                        (tool.id === "texture" && showTexturingPanel) ||
+                        (tool.id === "rig" && showRigPanel) ||
+                        (tool.id === "animate" && showAnimationPanel)
+                        ? `${theme === 'dark' ? 'bg-lime-500/20 border-lime-500/30' : 'bg-cyan-500/20 border-cyan-500/30'} ${currentTheme.accentColor} border`
+                        : `${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${currentTheme.textSecondary} hover:${currentTheme.text}`
+                  }`}
+                >
+                  <tool.icon className="w-5 h-5" />
+                  <span className="text-[9px]">{tool.label}</span>
+                </button>
+              </FeatureTooltip>
+            );
+          })}
         </aside>
 
         {/* Main Content */}
@@ -2251,6 +2298,7 @@ f 7 1 3 5
             isOpen={showTexturingPanel}
             onClose={() => {
               setShowTexturingPanel(false);
+              setIsPaintMode(false); // Exit paint mode when closing
               if (!isTextured) {
                 setFocusedVariant(null);
               }
@@ -2272,7 +2320,16 @@ f 7 1 3 5
             setTexturePrompt={setTexturePrompt}
             textureStyle={textureStyle}
             setTextureStyle={setTextureStyle}
-            gpuEnabled={phase2Available}
+            gpuEnabled={gpuEnabled}
+            // Paint mode props
+            isPaintMode={isPaintMode}
+            setIsPaintMode={setIsPaintMode}
+            selectedPaintColor={selectedPaintColor}
+            setSelectedPaintColor={setSelectedPaintColor}
+            brushSize={brushSize}
+            setBrushSize={setBrushSize}
+            paintedColors={paintedColors}
+            onClearPaint={handleClearPaint}
           />
         )}
       </AnimatePresence>
@@ -2286,6 +2343,7 @@ f 7 1 3 5
         theme={theme}
         modelType={selectedGeneratedModel?.modelType || "robot"}
         modelVariant={selectedGeneratedModel?.variant || 1}
+        modelPrompt={selectedGeneratedModel?.prompt || prompt}
       />
 
       {/* Animation Panel */}

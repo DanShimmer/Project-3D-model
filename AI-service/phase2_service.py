@@ -29,10 +29,10 @@ phase2_jobs = {}
 class Phase2Config:
     """
     Configuration for Phase 2 features
-    Set ENABLE_GPU_FEATURES = True when you have a capable GPU
+    GPU features are now ENABLED for real AI processing
     """
-    # Master switch - set to True when GPU is ready
-    ENABLE_GPU_FEATURES = False
+    # Master switch - ENABLED for GPU processing
+    ENABLE_GPU_FEATURES = True
     
     # Feature flags
     ENABLE_TEXTURING = True      # AI texture generation
@@ -78,16 +78,26 @@ class Phase2Config:
 
 
 # ============================================
-# TEXTURING SERVICE
+# TEXTURING SERVICE (Uses AI Texturing)
 # ============================================
+# Import the AI texturing service
+try:
+    from texturing_service import ai_texturing_service, AITexturingService
+    AI_TEXTURING_AVAILABLE = True
+    print("✅ AI Texturing Service imported successfully")
+except ImportError as e:
+    AI_TEXTURING_AVAILABLE = False
+    print(f"⚠️ AI Texturing Service not available: {e}")
+
+
 class TexturingService:
     """
     AI-powered texture generation service
-    Uses stable diffusion based texture synthesis
+    Uses Stable Diffusion + ControlNet for automatic texturing
     """
     
     def __init__(self):
-        self.model = None
+        self.ai_service = ai_texturing_service if AI_TEXTURING_AVAILABLE else None
         self.loaded = False
     
     def load_model(self):
@@ -95,32 +105,31 @@ class TexturingService:
         if not Phase2Config.ENABLE_GPU_FEATURES:
             return False
         
+        if not AI_TEXTURING_AVAILABLE:
+            print("⚠️ AI Texturing not available")
+            return False
+        
         try:
-            # TODO: Load actual texture model when GPU is available
-            # Example models:
-            # - TEXTure (text-to-texture)
-            # - Text2Tex
-            # - ControlNet for texture
-            print("Loading texture generation model...")
-            self.loaded = True
-            return True
+            success = self.ai_service.load_models()
+            self.loaded = success
+            return success
         except Exception as e:
             print(f"Failed to load texture model: {e}")
             return False
     
     def generate_texture(self, model_path: str, prompt: str = None, style: str = "realistic"):
         """
-        Generate texture for a 3D model
+        Generate texture for a 3D model using AI
         
         Args:
             model_path: Path to the GLB/OBJ model
-            prompt: Optional text prompt for texture style
-            style: Texture style (realistic, cartoon, stylized)
+            prompt: Optional text prompt for texture customization
+            style: Texture style (realistic, stylized, pbr, hand-painted)
         
         Returns:
             Path to textured model
         """
-        if not Phase2Config.ENABLE_GPU_FEATURES:
+        if not Phase2Config.ENABLE_GPU_FEATURES or not AI_TEXTURING_AVAILABLE:
             # Demo mode - return mock result
             return {
                 "success": True,
@@ -129,47 +138,58 @@ class TexturingService:
                 "textured_model_path": model_path
             }
         
-        # Real implementation when GPU is ready
+        # Real AI texturing implementation
         try:
-            # TODO: Implement actual texture generation
-            # 1. Load mesh and UV unwrap if needed
-            # 2. Generate texture maps using AI model
-            # 3. Apply textures to mesh
-            # 4. Export textured model
+            # Ensure model is loaded
+            if not self.loaded:
+                self.load_model()
             
-            output_path = str(OUTPUT_DIR / f"{uuid.uuid4()}_textured.glb")
+            # Call AI texturing service
+            result = self.ai_service.generate_texture(model_path, style, prompt)
             
-            return {
-                "success": True,
-                "textured_model_path": output_path,
-                "texture_maps": {
-                    "diffuse": f"{output_path}_diffuse.png",
-                    "normal": f"{output_path}_normal.png",
-                    "roughness": f"{output_path}_roughness.png"
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "textured_model_path": result.get("textured_model_path"),
+                    "texture_path": result.get("texture_path"),
+                    "style": style,
+                    "texture_maps": {
+                        "diffuse": result.get("texture_path")
+                    }
                 }
-            }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get("error", "Unknown texturing error")
+                }
+                
         except Exception as e:
+            traceback.print_exc()
             return {"success": False, "error": str(e)}
     
-    def generate_pbr_maps(self, diffuse_path: str):
+    def generate_pbr_maps(self, texture_path: str):
         """
-        Generate PBR maps from a diffuse texture
+        Generate PBR maps (normal, roughness, metallic) from diffuse texture
         
+        Args:
+            texture_path: Path to diffuse texture image
+            
         Returns:
             Dictionary with paths to normal, roughness, metallic maps
         """
-        if not Phase2Config.ENABLE_GPU_FEATURES:
+        if not Phase2Config.ENABLE_GPU_FEATURES or not AI_TEXTURING_AVAILABLE:
             return {
                 "success": True,
                 "demo_mode": True,
                 "message": "PBR generation simulated"
             }
         
-        # TODO: Implement PBR map generation
-        # Can use tools like:
-        # - Materialize
-        # - DeepBump (AI-based normal map generation)
-        pass
+        try:
+            result = self.ai_service.generate_pbr_maps(texture_path)
+            return result
+        except Exception as e:
+            traceback.print_exc()
+            return {"success": False, "error": str(e)}
 
 
 # ============================================
@@ -337,25 +357,36 @@ class AnimationService:
 
 
 # ============================================
-# REMESH SERVICE
+# REMESH SERVICE (Uses Real Remesh Service)
 # ============================================
+# Import the real remesh service
+try:
+    from remesh_service import remesh_service as real_remesh_service
+    REAL_REMESH_AVAILABLE = True
+    print("✅ Real Remesh Service imported successfully")
+except ImportError as e:
+    REAL_REMESH_AVAILABLE = False
+    print(f"⚠️ Real Remesh Service not available: {e}")
+
+
 class RemeshService:
     """
     Topology modification service
     Converts between triangle and quad meshes
+    Uses real remesh_service for actual mesh processing
     """
     
-    def remesh(self, model_path: str, topology: str = "triangle", target_faces: int = None):
+    def remesh(self, model_path: str, topology: str = "triangle", quality: str = "medium"):
         """
         Remesh a model with different topology
         
         Args:
             model_path: Path to input model
             topology: "triangle" or "quad"
-            target_faces: Optional target face count
+            quality: "low", "medium", or "high"
         
         Returns:
-            Path to remeshed model
+            Path to remeshed model with stats
         """
         if not Phase2Config.ENABLE_GPU_FEATURES:
             # Demo mode
@@ -367,24 +398,23 @@ class RemeshService:
                 "topology": topology
             }
         
-        try:
-            # TODO: Implement actual remeshing
-            # Options:
-            # - PyMeshLab for remeshing
-            # - Blender Python API
-            # - OpenMesh
-            # - Instant Meshes for quad remeshing
-            
-            output_path = str(OUTPUT_DIR / f"{uuid.uuid4()}_remeshed.glb")
-            
+        # Use real remesh service if available
+        if REAL_REMESH_AVAILABLE:
+            try:
+                result = real_remesh_service.remesh(model_path, topology, quality)
+                return result
+            except Exception as e:
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+        else:
+            # Fallback to demo
             return {
                 "success": True,
-                "remeshed_model_path": output_path,
-                "topology": topology,
-                "face_count": target_faces or "auto"
+                "demo_mode": True,
+                "message": f"Remesh to {topology} (remesh_service not available)",
+                "remeshed_model_path": model_path,
+                "topology": topology
             }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
 
 
 # ============================================
@@ -595,29 +625,39 @@ def apply_animation():
 
 @phase2_bp.route('/remesh', methods=['POST'])
 def remesh_model():
-    """Remesh model with different topology"""
+    """Remesh model with different topology (Quad or Triangle)"""
     try:
         data = request.get_json()
         model_path = data.get('modelPath')
         topology = data.get('topology', 'triangle')
-        target_faces = data.get('targetFaces')
+        quality = data.get('quality', 'medium')
         
         if not model_path:
             return jsonify({"ok": False, "error": "Model path required"}), 400
         
         if topology not in ['triangle', 'quad']:
-            return jsonify({"ok": False, "error": "Invalid topology"}), 400
+            return jsonify({"ok": False, "error": "Invalid topology. Use 'triangle' or 'quad'"}), 400
+        
+        if quality not in ['low', 'medium', 'high']:
+            quality = 'medium'
         
         job_id = str(uuid.uuid4())
-        phase2_jobs[job_id] = {"status": "processing", "type": "remesh"}
+        phase2_jobs[job_id] = {"status": "processing", "type": "remesh", "topology": topology}
         
-        result = remesh_service.remesh(model_path, topology, target_faces)
+        print(f"\n🔄 Remesh Job: {job_id}")
+        print(f"   Model: {model_path}")
+        print(f"   Topology: {topology}")
+        print(f"   Quality: {quality}")
+        
+        result = remesh_service.remesh(model_path, topology, quality)
         
         if result.get("success"):
             phase2_jobs[job_id]["status"] = "completed"
+            phase2_jobs[job_id]["result"] = result
             return jsonify({"ok": True, "jobId": job_id, **result})
         else:
             phase2_jobs[job_id]["status"] = "failed"
+            phase2_jobs[job_id]["error"] = result.get("error")
             return jsonify({"ok": False, **result}), 500
             
     except Exception as e:

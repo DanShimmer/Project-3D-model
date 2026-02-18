@@ -91,6 +91,37 @@ const MARKER_LEGEND = {
   ]
 };
 
+// Model type detection helper
+const detectModelType = (modelType, prompt = "") => {
+  const promptLower = (prompt || "").toLowerCase();
+  
+  // Check for humanoid indicators
+  const humanoidKeywords = ["robot", "human", "person", "character", "man", "woman", "boy", "girl", "soldier", "knight", "wizard", "warrior"];
+  const quadrupedKeywords = ["dog", "cat", "horse", "lion", "wolf", "fox", "bear", "deer", "elephant", "animal", "creature", "beast"];
+  
+  // Check model type first
+  if (modelType === "robot") return "humanoid";
+  if (modelType === "cat" || modelType === "dog") return "quadruped";
+  
+  // Then check prompt
+  for (const keyword of humanoidKeywords) {
+    if (promptLower.includes(keyword)) return "humanoid";
+  }
+  for (const keyword of quadrupedKeywords) {
+    if (promptLower.includes(keyword)) return "quadruped";
+  }
+  
+  // Default to humanoid for unknown types
+  return "humanoid";
+};
+
+// Check if model can be rigged
+const canRigModel = (modelType) => {
+  // These model types can be rigged
+  const riggableTypes = ["robot", "cat", "dog", "humanoid", "quadruped"];
+  return riggableTypes.includes(modelType) || modelType === "uploaded";
+};
+
 export default function RigPanel({
   isOpen,
   onClose,
@@ -98,8 +129,10 @@ export default function RigPanel({
   onEnableAnimation,
   isProcessing = false,
   theme = "dark",
-  modelType = "robot", // Only robot can be rigged in demo
-  modelVariant = 1
+  modelType = "robot",
+  modelVariant = 1,
+  modelUrl = null,
+  modelPrompt = ""
 }) {
   const [step, setStep] = useState(1); // 1: Select type, 2: Place markers
   const [selectedType, setSelectedType] = useState(null);
@@ -108,8 +141,18 @@ export default function RigPanel({
   const [draggingMarker, setDraggingMarker] = useState(null);
   const canvasRef = useRef(null);
   
-  // Only robot model can be rigged in demo
-  const canRig = modelType === "robot";
+  // Detect if model can be rigged based on type
+  const detectedRigType = detectModelType(modelType, modelPrompt);
+  const canRig = canRigModel(modelType);
+  
+  // Auto-select detected type on open
+  useEffect(() => {
+    if (isOpen && canRig && !selectedType) {
+      // Pre-select based on detected type
+      const preselect = detectedRigType === "quadruped" ? "quadruped-dog" : "humanoid";
+      setSelectedType(preselect);
+    }
+  }, [isOpen, canRig, detectedRigType, selectedType]);
 
   const currentTheme = {
     dark: {
@@ -227,8 +270,18 @@ export default function RigPanel({
         >
           {/* Left side - Model preview */}
           <div className="flex-1 bg-black/50 relative min-h-[500px] flex items-center justify-center">
-            {/* Model preview with 3D robot */}
+            {/* Model preview with 3D model */}
             <div className="relative w-full h-full" ref={canvasRef}>
+              {/* Detected type indicator */}
+              {canRig && (
+                <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-2 bg-black/70 rounded-lg">
+                  <div className={`w-2 h-2 rounded-full ${detectedRigType === "humanoid" ? "bg-cyan-400" : "bg-amber-400"}`} />
+                  <span className="text-xs text-white">
+                    Detected: {detectedRigType === "humanoid" ? "Humanoid" : "Quadruped"}
+                  </span>
+                </div>
+              )}
+              
               {/* 3D Model preview */}
               {canRig ? (
                 <div className="absolute inset-0">
@@ -236,6 +289,7 @@ export default function RigPanel({
                     modelType={modelType}
                     variant={modelVariant}
                     autoRotate={step === 1}
+                    showGrid={true}
                     className="w-full h-full"
                   />
                 </div>
@@ -245,8 +299,8 @@ export default function RigPanel({
                     <AlertTriangle size={48} className="mx-auto mb-4 text-amber-500" />
                     <h3 className={`text-lg font-medium ${currentTheme.text} mb-2`}>Cannot Rig This Model</h3>
                     <p className={`text-sm ${currentTheme.textMuted}`}>
-                      Only humanoid models (like robot) can be rigged.
-                      <br />This model type is not supported for rigging.
+                      Only humanoid or quadruped models can be rigged.
+                      <br />This model type ({modelType}) is not supported for rigging.
                     </p>
                   </div>
                 </div>

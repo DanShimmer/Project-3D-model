@@ -1,0 +1,29 @@
+# AI Texturing Service Requirements
+# For automatic texture generation using Stable Diffusion + ControlNet
+
+# Core AI libraries
+torch>=2.0.0
+torchvision>=0.15.0
+diffusers>=0.25.0
+transformers>=4.36.0
+accelerate>=0.25.0
+
+# ControlNet and image processing
+controlnet_aux>=0.0.7
+opencv-python>=4.8.0
+
+# 3D model processing
+trimesh>=4.0.0
+pyrender>=0.1.45
+pyglet<2  # Required for pyrender on Windows
+
+# Image processing
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# Memory optimization (optional but recommended)
+xformers>=0.0.23  # For memory efficient attention
+
+# Additional utilities
+scipy>=1.11.0
+scikit-image>=0.21.0

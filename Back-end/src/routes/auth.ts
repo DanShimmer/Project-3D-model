@@ -31,6 +31,7 @@ router.post("/reset-password", resetPassword);
 router.post("/resend-otp", resendOTP);
 
 // Protected endpoints (require authentication)
+router.get("/me", authMiddleware, getProfile);  // Validate token & get user
 router.get("/profile", authMiddleware, getProfile);
 router.put("/profile", authMiddleware, updateProfile);
 router.put("/change-password", authMiddleware, changePassword);

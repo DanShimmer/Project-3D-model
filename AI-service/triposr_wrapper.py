@@ -1,6 +1,8 @@
 """
 TripoSR Image-to-3D Generator
 Uses the TripoSR model from StabilityAI for single-image 3D reconstruction
+
+Optimized for RTX 3060 12GB
 """
 import torch
 import numpy as np
@@ -8,6 +10,7 @@ from PIL import Image
 from pathlib import Path
 import sys
 import os
+import gc
 
 # Add TripoSR to path if cloned locally
 TRIPOSR_PATH = os.getenv("TRIPOSR_PATH", "./TripoSR")
@@ -15,6 +18,34 @@ if os.path.exists(TRIPOSR_PATH):
     sys.path.insert(0, TRIPOSR_PATH)
 
 from config import TripoConfig, DEVICE, OUTPUT_DIR
+
+# Import GPU optimizer
+try:
+    from gpu_optimizer import gpu_optimizer
+    GPU_OPTIMIZER_AVAILABLE = True
+except ImportError:
+    GPU_OPTIMIZER_AVAILABLE = False
+
+
+def check_vram_before_inference():
+    """Check if enough VRAM is available, clear if needed"""
+    if not torch.cuda.is_available():
+        return
+    
+    allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+    total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    free = total - allocated
+    
+    # TripoSR needs ~3-4GB, require at least 4GB free
+    if free < 4.0:
+        print(f"⚠️ Low VRAM ({free:.1f}GB free), clearing cache...")
+        torch.cuda.empty_cache()
+        gc.collect()
+        
+        # Check again
+        allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+        free = total - allocated
+        print(f"  ✓ After clear: {free:.1f}GB free")
 
 
 class TripoSRGenerator:
@@ -81,10 +112,16 @@ class TripoSRGenerator:
         Returns:
             Path to the generated .glb file
         """
+        # Check VRAM before loading model
+        check_vram_before_inference()
+        
         self._load_model()
         
         if mc_resolution is None:
             mc_resolution = TripoConfig.MC_RESOLUTION
+            # Use GPU optimizer settings if available
+            if GPU_OPTIMIZER_AVAILABLE:
+                mc_resolution = gpu_optimizer.optimizations["triposr"]["mc_resolution"]
             
         # Generate output path if not provided
         if output_path is None:

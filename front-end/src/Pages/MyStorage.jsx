@@ -26,6 +26,7 @@ import {
 import { LogoIcon } from "../Components/Logo";
 import { DemoModelPreview, DEMO_MODEL_TYPES } from "../Components/DemoModels";
 import { useTheme } from "../contexts/ThemeContext";
+import { useAuth } from "../contexts/AuthContext";
 
 const API_URL = "http://localhost:5000/api";
 
@@ -43,8 +44,8 @@ const getModelTypeFromPrompt = (prompt) => {
 
 export default function MyStorage() {
   const { theme, currentTheme, toggleTheme } = useTheme();
+  const { user, isAuthenticated, loading: authLoading, getToken } = useAuth();
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,17 +64,12 @@ export default function MyStorage() {
   const [shareTitle, setShareTitle] = useState("");
   const [shareDescription, setShareDescription] = useState("");
 
-  const getToken = () => localStorage.getItem("pv_token");
-
-  // Check auth
+  // Check auth - redirect if not authenticated
   useEffect(() => {
-    const storedUser = localStorage.getItem("pv_user");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    } else {
+    if (!authLoading && !isAuthenticated) {
       navigate("/login");
     }
-  }, [navigate]);
+  }, [authLoading, isAuthenticated, navigate]);
 
   // Fetch models
   const fetchModels = async () => {
@@ -104,10 +100,10 @@ export default function MyStorage() {
   };
 
   useEffect(() => {
-    if (user) {
+    if (isAuthenticated && !authLoading) {
       fetchModels();
     }
-  }, [user, currentPage, typeFilter]);
+  }, [isAuthenticated, authLoading, currentPage, typeFilter]);
 
   // Handle delete
   const handleDelete = async (modelId) => {

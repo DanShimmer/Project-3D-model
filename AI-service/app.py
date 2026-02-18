@@ -37,6 +37,14 @@ except ImportError:
     PHASE2_AVAILABLE = False
     print("⚠️ Phase 2 services not available")
 
+# Import GPU optimizer
+try:
+    from gpu_optimizer import gpu_optimizer
+    GPU_OPTIMIZER_AVAILABLE = True
+except ImportError:
+    GPU_OPTIMIZER_AVAILABLE = False
+    print("⚠️ GPU Optimizer not available")
+
 
 app = Flask(__name__)
 CORS(app)
@@ -56,13 +64,31 @@ jobs = {}
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with GPU optimization info"""
     import torch
-    return jsonify({
+    
+    response = {
         'status': 'healthy',
         'gpu_available': torch.cuda.is_available(),
-        'gpu_name': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
-    })
+        'gpu_name': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        'phase2_available': PHASE2_AVAILABLE
+    }
+    
+    # Add GPU optimizer info if available
+    if GPU_OPTIMIZER_AVAILABLE:
+        response['gpu_optimizer'] = {
+            'enabled': True,
+            'gpu_info': gpu_optimizer.gpu_info,
+            'memory': gpu_optimizer.get_memory_info(),
+            'optimizations': {
+                'sd_dtype': str(gpu_optimizer.optimizations['sd']['dtype']),
+                'xformers': gpu_optimizer.optimizations['sd']['enable_xformers'],
+                'sdxl_resolution': gpu_optimizer.optimizations['sdxl']['resolution'],
+                'triposr_chunk_size': gpu_optimizer.optimizations['triposr']['chunk_size']
+            }
+        }
+    
+    return jsonify(response)
 
 
 @app.route('/api/text-to-3d', methods=['POST'])

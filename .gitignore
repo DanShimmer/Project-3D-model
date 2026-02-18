@@ -43,3 +43,7 @@ AI-service/models/
 *.temp
 
 AI-service/venv311/
+# Electron release builds (too large for GitHub)
+front-end/release/
+*.asar
+*.exe

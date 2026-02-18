@@ -2,14 +2,16 @@
  * Phase 2 API - Advanced 3D Processing
  * Texturing, Rigging, Animation, Remeshing, Export
  * 
- * DEMO MODE: When backend is unavailable, returns simulated success responses
+ * GPU MODE: Real AI processing with GPU backend
+ * Falls back to demo mode only if backend is unavailable
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const PHASE2_BASE = `${API_BASE}/phase2`;
 
-// Demo mode flag - set to true to always use demo responses
-const DEMO_MODE = true;
+// Demo mode flag - set to FALSE to use real AI backend
+// Will auto-fallback to demo if backend unavailable
+const DEMO_MODE = false;
 
 const authHeaders = () => {
   const t = localStorage.getItem("pv_token") || localStorage.getItem("token");
@@ -22,16 +24,16 @@ const safeJsonResponse = async (res, demoResponse) => {
     // Check if response is HTML (error page)
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("text/html")) {
-      console.warn("Phase 2 API returned HTML, using demo mode");
+      console.warn("Phase 2 API returned HTML, falling back to demo mode");
       return demoResponse;
     }
     if (!res.ok) {
-      console.warn(`Phase 2 API error ${res.status}, using demo mode`);
+      console.warn(`Phase 2 API error ${res.status}, falling back to demo mode`);
       return demoResponse;
     }
     return await res.json();
   } catch (error) {
-    console.warn("Phase 2 API parse error, using demo mode:", error.message);
+    console.warn("Phase 2 API parse error, falling back to demo mode:", error.message);
     return demoResponse;
   }
 };
@@ -40,12 +42,11 @@ const safeJsonResponse = async (res, demoResponse) => {
  * Check Phase 2 service health and GPU status
  */
 export async function checkPhase2Health() {
-  if (DEMO_MODE) {
-    return { ok: true, phase2_enabled: true, demo_mode: true };
-  }
   try {
     const res = await fetch(`${PHASE2_BASE}/health`);
-    return safeJsonResponse(res, { ok: true, phase2_enabled: true, demo_mode: true });
+    const data = await safeJsonResponse(res, { ok: true, phase2_enabled: true, demo_mode: true });
+    console.log("Phase 2 health check:", data);
+    return data;
   } catch (error) {
     console.error("Phase 2 health check error:", error);
     return { 
@@ -68,19 +69,8 @@ export async function checkPhase2Health() {
  * @param {string} style - Texture style (realistic, cartoon, stylized)
  */
 export async function applyTexture(modelPath, prompt = null, style = "realistic") {
-  // Demo mode - simulate successful texture application
-  if (DEMO_MODE) {
-    await new Promise(r => setTimeout(r, 1500)); // Simulate processing time
-    return {
-      ok: true,
-      demo_mode: true,
-      message: "Texture applied successfully (demo mode)",
-      texturedModelPath: modelPath,
-      style: style,
-      prompt: prompt
-    };
-  }
   try {
+    console.log("Applying AI texture:", { modelPath, style, prompt });
     const res = await fetch(`${PHASE2_BASE}/texture`, {
       method: "POST",
       headers: {
@@ -89,19 +79,21 @@ export async function applyTexture(modelPath, prompt = null, style = "realistic"
       },
       body: JSON.stringify({ modelPath, prompt, style })
     });
-    return safeJsonResponse(res, {
+    const result = await safeJsonResponse(res, {
       ok: true,
       demo_mode: true,
-      message: "Texture applied successfully (demo mode)",
+      message: "Texture applied successfully (fallback demo mode)",
       texturedModelPath: modelPath
     });
+    console.log("Texture result:", result);
+    return result;
   } catch (error) {
     console.error("Apply texture error:", error);
-    // Return demo success instead of error
+    // Return demo success as fallback
     return {
       ok: true,
       demo_mode: true,
-      message: "Texture applied successfully (demo mode)",
+      message: "Texture applied successfully (fallback demo mode)",
       texturedModelPath: modelPath
     };
   }
@@ -112,19 +104,8 @@ export async function applyTexture(modelPath, prompt = null, style = "realistic"
  * @param {string} modelPath - Path to the model
  */
 export async function generatePBR(modelPath) {
-  // Demo mode - simulate successful PBR generation
-  if (DEMO_MODE) {
-    await new Promise(r => setTimeout(r, 1000));
-    return {
-      ok: true,
-      demo_mode: true,
-      message: "PBR maps generated (demo mode)",
-      normalMap: null,
-      roughnessMap: null,
-      metallicMap: null
-    };
-  }
   try {
+    console.log("Generating PBR maps for:", modelPath);
     const res = await fetch(`${PHASE2_BASE}/pbr`, {
       method: "POST",
       headers: {
@@ -136,14 +117,17 @@ export async function generatePBR(modelPath) {
     return safeJsonResponse(res, {
       ok: true,
       demo_mode: true,
-      message: "PBR maps generated (demo mode)"
+      message: "PBR maps generated (fallback demo mode)",
+      normalMap: null,
+      roughnessMap: null,
+      metallicMap: null
     });
   } catch (error) {
     console.error("Generate PBR error:", error);
     return {
       ok: true,
       demo_mode: true,
-      message: "PBR maps generated (demo mode)"
+      message: "PBR maps generated (fallback demo mode)"
     };
   }
 }
@@ -159,20 +143,8 @@ export async function generatePBR(modelPath) {
  * @param {Array} markers - Optional marker positions for guided rigging
  */
 export async function applyRig(modelPath, characterType = "humanoid", markers = []) {
-  // Demo mode - simulate successful rigging
-  if (DEMO_MODE) {
-    await new Promise(r => setTimeout(r, 2000)); // Rigging takes longer
-    return {
-      ok: true,
-      demo_mode: true,
-      message: "Rigging applied successfully (demo mode)",
-      riggedModelPath: modelPath,
-      characterType: characterType,
-      boneCount: characterType === "humanoid" ? 24 : 18,
-      animationReady: true
-    };
-  }
   try {
+    console.log("Applying rig:", { modelPath, characterType, markers: markers.length });
     const res = await fetch(`${PHASE2_BASE}/rig`, {
       method: "POST",
       headers: {
@@ -181,19 +153,23 @@ export async function applyRig(modelPath, characterType = "humanoid", markers = 
       },
       body: JSON.stringify({ modelPath, characterType, markers })
     });
-    return safeJsonResponse(res, {
+    const result = await safeJsonResponse(res, {
       ok: true,
       demo_mode: true,
-      message: "Rigging applied successfully (demo mode)",
+      message: "Rigging applied successfully (fallback demo mode)",
       riggedModelPath: modelPath,
+      characterType: characterType,
+      boneCount: characterType === "humanoid" ? 24 : 18,
       animationReady: true
     });
+    console.log("Rig result:", result);
+    return result;
   } catch (error) {
     console.error("Apply rig error:", error);
     return {
       ok: true,
       demo_mode: true,
-      message: "Rigging applied successfully (demo mode)",
+      message: "Rigging applied successfully (fallback demo mode)",
       riggedModelPath: modelPath,
       animationReady: true
     };
@@ -208,20 +184,6 @@ export async function applyRig(modelPath, characterType = "humanoid", markers = 
  * Get list of available animations
  */
 export async function getAnimations() {
-  // Demo mode - return sample animations
-  if (DEMO_MODE) {
-    return {
-      ok: true,
-      demo_mode: true,
-      animations: [
-        { id: "idle", name: "Idle", duration: 2.0 },
-        { id: "walk", name: "Walk", duration: 1.5 },
-        { id: "run", name: "Run", duration: 1.0 },
-        { id: "jump", name: "Jump", duration: 0.8 },
-        { id: "wave", name: "Wave", duration: 1.5 }
-      ]
-    };
-  }
   try {
     const res = await fetch(`${PHASE2_BASE}/animations`, {
       headers: authHeaders()
@@ -231,7 +193,10 @@ export async function getAnimations() {
       demo_mode: true,
       animations: [
         { id: "idle", name: "Idle", duration: 2.0 },
-        { id: "walk", name: "Walk", duration: 1.5 }
+        { id: "walk", name: "Walk", duration: 1.5 },
+        { id: "run", name: "Run", duration: 1.0 },
+        { id: "jump", name: "Jump", duration: 0.8 },
+        { id: "wave", name: "Wave", duration: 1.5 }
       ]
     });
   } catch (error) {
@@ -253,18 +218,8 @@ export async function getAnimations() {
  * @param {string} animationId - ID of animation to apply
  */
 export async function applyAnimation(modelPath, animationId) {
-  // Demo mode - simulate successful animation application
-  if (DEMO_MODE) {
-    await new Promise(r => setTimeout(r, 1000));
-    return {
-      ok: true,
-      demo_mode: true,
-      message: "Animation applied successfully (demo mode)",
-      animatedModelPath: modelPath,
-      animationId: animationId
-    };
-  }
   try {
+    console.log("Applying animation:", { modelPath, animationId });
     const res = await fetch(`${PHASE2_BASE}/animate`, {
       method: "POST",
       headers: {
@@ -276,15 +231,16 @@ export async function applyAnimation(modelPath, animationId) {
     return safeJsonResponse(res, {
       ok: true,
       demo_mode: true,
-      message: "Animation applied successfully (demo mode)",
-      animatedModelPath: modelPath
+      message: "Animation applied successfully (fallback demo mode)",
+      animatedModelPath: modelPath,
+      animationId: animationId
     });
   } catch (error) {
     console.error("Apply animation error:", error);
     return {
       ok: true,
       demo_mode: true,
-      message: "Animation applied successfully (demo mode)",
+      message: "Animation applied successfully (fallback demo mode)",
       animatedModelPath: modelPath
     };
   }
@@ -298,45 +254,37 @@ export async function applyAnimation(modelPath, animationId) {
  * Remesh model with different topology
  * @param {string} modelPath - Path to the model
  * @param {string} topology - "triangle" or "quad"
- * @param {number} targetFaces - Optional target face count
+ * @param {string} quality - "low", "medium", or "high"
  */
-export async function remeshModel(modelPath, topology = "triangle", targetFaces = null) {
-  // Demo mode - simulate successful remeshing
-  if (DEMO_MODE) {
-    await new Promise(r => setTimeout(r, 1500));
-    return {
-      ok: true,
-      demo_mode: true,
-      message: "Remeshing completed successfully (demo mode)",
-      remeshedModelPath: modelPath,
-      topology: topology,
-      originalFaces: 25000,
-      newFaces: targetFaces || (topology === "quad" ? 6000 : 12000)
-    };
-  }
+export async function remeshModel(modelPath, topology = "triangle", quality = "medium") {
   try {
+    console.log("Remeshing model:", { modelPath, topology, quality });
     const res = await fetch(`${PHASE2_BASE}/remesh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders()
       },
-      body: JSON.stringify({ modelPath, topology, targetFaces })
+      body: JSON.stringify({ modelPath, topology, quality })
     });
-    return safeJsonResponse(res, {
+    const result = await safeJsonResponse(res, {
       ok: true,
       demo_mode: true,
-      message: "Remeshing completed successfully (demo mode)",
-      remeshedModelPath: modelPath,
-      topology: topology
+      message: `Remesh to ${topology} completed (fallback demo mode)`,
+      remeshed_model_path: modelPath,
+      topology: topology,
+      original_stats: { vertices: 10000, faces: 20000 },
+      new_stats: { vertices: 5000, faces: topology === "quad" ? 5000 : 10000 }
     });
+    console.log("Remesh result:", result);
+    return result;
   } catch (error) {
     console.error("Remesh error:", error);
     return {
       ok: true,
       demo_mode: true,
-      message: "Remeshing completed successfully (demo mode)",
-      remeshedModelPath: modelPath,
+      message: `Remesh to ${topology} completed (fallback demo mode)`,
+      remeshed_model_path: modelPath,
       topology: topology
     };
   }
@@ -352,19 +300,8 @@ export async function remeshModel(modelPath, topology = "triangle", targetFaces 
  * @param {string} format - Target format (glb, obj, fbx, usdz, stl, 3mf, blend)
  */
 export async function exportModel(modelPath, format = "glb") {
-  // Demo mode - simulate successful export
-  if (DEMO_MODE) {
-    await new Promise(r => setTimeout(r, 1000));
-    return {
-      ok: true,
-      demo_mode: true,
-      message: `Model exported to ${format.toUpperCase()} (demo mode)`,
-      exportedPath: modelPath.replace(/\.[^.]+$/, `.${format}`),
-      format: format,
-      size: "2.5 MB"
-    };
-  }
   try {
+    console.log("Exporting model:", { modelPath, format });
     const res = await fetch(`${PHASE2_BASE}/export`, {
       method: "POST",
       headers: {
@@ -376,15 +313,17 @@ export async function exportModel(modelPath, format = "glb") {
     return safeJsonResponse(res, {
       ok: true,
       demo_mode: true,
-      message: `Model exported to ${format.toUpperCase()} (demo mode)`,
-      format: format
+      message: `Model exported to ${format.toUpperCase()} (fallback demo mode)`,
+      exportedPath: modelPath.replace(/\.[^.]+$/, `.${format}`),
+      format: format,
+      size: "2.5 MB"
     });
   } catch (error) {
     console.error("Export error:", error);
     return {
       ok: true,
       demo_mode: true,
-      message: `Model exported to ${format.toUpperCase()} (demo mode)`,
+      message: `Model exported to ${format.toUpperCase()} (fallback demo mode)`,
       format: format
     };
   }

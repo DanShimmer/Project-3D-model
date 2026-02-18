@@ -70,11 +70,17 @@ export default function TexturingPanel({
   gpuEnabled = false,
   onColorPaint,
   paintedColors = {},
-  onClearPaint
+  onClearPaint,
+  isPaintMode = false,
+  setIsPaintMode,
+  selectedPaintColor,
+  setSelectedPaintColor,
+  brushSize: propBrushSize,
+  setBrushSize: propSetBrushSize
 }) {
   const [localBrightness, setLocalBrightness] = useState(brightness);
-  const [selectedColor, setSelectedColor] = useState("#4caf50");
-  const [brushSize, setBrushSize] = useState(50);
+  const [selectedColor, setSelectedColor] = useState(selectedPaintColor || "#4caf50");
+  const [brushSize, setBrushSize] = useState(propBrushSize || 50);
 
   const currentTheme = {
     dark: {
@@ -114,6 +120,27 @@ export default function TexturingPanel({
 
   const handleColorSelect = (color) => {
     setSelectedColor(color);
+    // Also update parent state if available
+    if (setSelectedPaintColor) {
+      setSelectedPaintColor(color);
+    }
+    // Enable paint mode when selecting a color
+    if (setIsPaintMode) {
+      setIsPaintMode(true);
+    }
+  };
+
+  const handleBrushSizeChange = (value) => {
+    setBrushSize(value);
+    if (propSetBrushSize) {
+      propSetBrushSize(value);
+    }
+  };
+
+  const handleExitPaintMode = () => {
+    if (setIsPaintMode) {
+      setIsPaintMode(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -207,12 +234,32 @@ export default function TexturingPanel({
                 </div>
               </div>
               
+              {/* Paint Mode Toggle */}
+              {isPaintMode && (
+                <div className={`mb-3 flex items-center justify-between px-3 py-2 ${theme === "dark" ? "bg-lime-900/30 border-lime-500/30" : "bg-cyan-100 border-cyan-300"} border rounded-lg`}>
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-4 h-4 rounded-full border-2 border-white"
+                      style={{ backgroundColor: selectedColor }}
+                    />
+                    <span className={`text-xs ${currentTheme.accentColor}`}>Paint Mode Active</span>
+                  </div>
+                  <button
+                    onClick={handleExitPaintMode}
+                    className={`text-xs px-2 py-1 ${currentTheme.hoverBg} rounded transition-colors ${currentTheme.textSecondary}`}
+                  >
+                    Exit
+                  </button>
+                </div>
+              )}
+              
               {/* Color grid */}
               <div className="grid grid-cols-9 gap-1">
                 {COLOR_PALETTE.map((color, index) => (
                   <button
                     key={index}
                     onClick={() => handleColorSelect(color)}
+                    title={isPaintMode && selectedColor === color ? "Currently selected" : "Click to paint with this color"}
                     className={`w-full aspect-square rounded transition-all hover:scale-110 ${
                       selectedColor === color 
                         ? "ring-2 ring-white ring-offset-1 ring-offset-gray-900" 
@@ -226,7 +273,7 @@ export default function TexturingPanel({
               {/* Paint instruction */}
               <div className={`mt-3 flex items-center gap-2 text-xs ${currentTheme.textMuted}`}>
                 <Brush size={14} />
-                <span>Click & drag on model to paint</span>
+                <span>{isPaintMode ? "Hold left mouse & drag to paint" : "Click a color to start painting"}</span>
               </div>
             </div>
 
@@ -244,7 +291,7 @@ export default function TexturingPanel({
                 min="10"
                 max="100"
                 value={brushSize}
-                onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                onChange={(e) => handleBrushSizeChange(parseInt(e.target.value))}
                 className={`w-full h-2 ${currentTheme.sliderTrack} rounded-full appearance-none cursor-pointer`}
                 style={{
                   background: `linear-gradient(to right, ${theme === "dark" ? "#84cc16" : "#06b6d4"} 0%, ${theme === "dark" ? "#84cc16" : "#06b6d4"} ${brushSize}%, ${theme === "dark" ? "#374151" : "#d1d5db"} ${brushSize}%, ${theme === "dark" ? "#374151" : "#d1d5db"} 100%)`

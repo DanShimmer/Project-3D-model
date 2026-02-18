@@ -1,8 +1,11 @@
 """
 Stable Diffusion Text-to-Image Generator
 Supports SD 1.5 (fast) and SDXL (quality)
+
+Optimized for RTX 3060 12GB
 """
 import torch
+import gc
 from PIL import Image
 from diffusers import (
     StableDiffusionPipeline, 
@@ -12,6 +15,32 @@ from diffusers import (
 )
 from config import SDConfig, DEVICE, CACHE_DIR
 
+# Import GPU optimizer for automatic optimizations
+try:
+    from gpu_optimizer import gpu_optimizer
+    GPU_OPTIMIZER_AVAILABLE = True
+    print("✅ GPU Optimizer loaded")
+except ImportError:
+    GPU_OPTIMIZER_AVAILABLE = False
+    print("⚠️ GPU Optimizer not available, using default settings")
+
+
+def check_vram_status():
+    """Check VRAM and warn if low"""
+    if not torch.cuda.is_available():
+        return
+    
+    allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+    total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    free = total - allocated
+    
+    print(f"📊 VRAM: {allocated:.1f}GB used / {total:.1f}GB total ({free:.1f}GB free)")
+    
+    if free < 3.0:
+        print("⚠️ Low VRAM, clearing cache...")
+        torch.cuda.empty_cache()
+        gc.collect()
+
 
 class StableDiffusionGenerator:
     def __init__(self):
@@ -20,14 +49,20 @@ class StableDiffusionGenerator:
         self.current_model = None
         
     def _load_sd15(self):
-        """Load SD 1.5 model"""
+        """Load SD 1.5 model with GPU optimizations"""
         if self.sd15_pipe is not None:
             return
         
         print("📦 Loading Stable Diffusion 1.5...")
+        
+        # Get optimized dtype
+        dtype = torch.float16 if DEVICE == "cuda" else torch.float32
+        if GPU_OPTIMIZER_AVAILABLE:
+            dtype = gpu_optimizer.optimizations["sd"]["dtype"]
+        
         self.sd15_pipe = StableDiffusionPipeline.from_pretrained(
             SDConfig.SD15_MODEL,
-            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+            torch_dtype=dtype,
             cache_dir=str(CACHE_DIR),
             safety_checker=None,
             requires_safety_checker=False
@@ -40,8 +75,10 @@ class StableDiffusionGenerator:
         
         self.sd15_pipe = self.sd15_pipe.to(DEVICE)
         
-        # Enable memory optimizations
-        if DEVICE == "cuda":
+        # Apply GPU optimizations
+        if GPU_OPTIMIZER_AVAILABLE and DEVICE == "cuda":
+            self.sd15_pipe = gpu_optimizer.apply_sd_optimizations(self.sd15_pipe)
+        elif DEVICE == "cuda":
             self.sd15_pipe.enable_attention_slicing()
             try:
                 self.sd15_pipe.enable_xformers_memory_efficient_attention()
@@ -52,14 +89,20 @@ class StableDiffusionGenerator:
         print("  ✓ SD 1.5 loaded")
         
     def _load_sdxl(self):
-        """Load SDXL model"""
+        """Load SDXL model with GPU optimizations"""
         if self.sdxl_pipe is not None:
             return
         
         print("📦 Loading Stable Diffusion XL...")
+        
+        # Get optimized dtype
+        dtype = torch.float16 if DEVICE == "cuda" else torch.float32
+        if GPU_OPTIMIZER_AVAILABLE:
+            dtype = gpu_optimizer.optimizations["sd"]["dtype"]
+        
         self.sdxl_pipe = StableDiffusionXLPipeline.from_pretrained(
             SDConfig.SDXL_MODEL,
-            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+            torch_dtype=dtype,
             cache_dir=str(CACHE_DIR),
             variant="fp16" if DEVICE == "cuda" else None,
             use_safetensors=True
@@ -72,8 +115,10 @@ class StableDiffusionGenerator:
         
         self.sdxl_pipe = self.sdxl_pipe.to(DEVICE)
         
-        # Enable memory optimizations
-        if DEVICE == "cuda":
+        # Apply GPU optimizations
+        if GPU_OPTIMIZER_AVAILABLE and DEVICE == "cuda":
+            self.sdxl_pipe = gpu_optimizer.apply_sd_optimizations(self.sdxl_pipe)
+        elif DEVICE == "cuda":
             self.sdxl_pipe.enable_attention_slicing()
             try:
                 self.sdxl_pipe.enable_xformers_memory_efficient_attention()
@@ -117,6 +162,9 @@ class StableDiffusionGenerator:
         # Enhance prompt for 3D conversion
         enhanced_prompt = prompt + SDConfig.PROMPT_SUFFIX
         neg_prompt = negative_prompt or SDConfig.NEGATIVE_PROMPT
+        
+        # Check VRAM before generation
+        check_vram_status()
         
         # Set seed for reproducibility
         generator = None

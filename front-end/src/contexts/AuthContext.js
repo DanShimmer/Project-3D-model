@@ -1,26 +1,61 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+
 export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check if user is logged in on mount
-    const storedUser = localStorage.getItem('pv_user');
-    const token = localStorage.getItem('pv_token');
-    
-    if (storedUser && token) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        // Invalid stored user, clear storage
-        localStorage.removeItem('pv_user');
-        localStorage.removeItem('pv_token');
+  // Validate token with backend
+  const validateToken = async (token) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.user || data;
       }
+      return null;
+    } catch {
+      return null;
     }
-    setLoading(false);
+  };
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const storedUser = localStorage.getItem('pv_user');
+      const token = localStorage.getItem('pv_token');
+      
+      if (storedUser && token) {
+        try {
+          // Validate token with backend
+          const validUser = await validateToken(token);
+          
+          if (validUser) {
+            // Token is valid, use fresh user data
+            setUser(validUser);
+            localStorage.setItem('pv_user', JSON.stringify(validUser));
+          } else {
+            // Token expired or invalid, clear storage
+            console.log('Token expired, clearing session');
+            localStorage.removeItem('pv_user');
+            localStorage.removeItem('pv_token');
+            setUser(null);
+          }
+        } catch {
+          // Error validating, clear storage
+          localStorage.removeItem('pv_user');
+          localStorage.removeItem('pv_token');
+          setUser(null);
+        }
+      }
+      setLoading(false);
+    };
+    
+    checkAuth();
   }, []);
 
   const login = (userData, token) => {
