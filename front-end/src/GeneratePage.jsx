@@ -1,3 +1,4 @@
+import InstallAppButton from "./Components/InstallAppButton";
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useLocation, Link } from "react-router-dom";
@@ -1217,6 +1218,9 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
 
             {/* Right side */}
             <div className="flex items-center gap-3">
+              {/* Install App Button */}
+              <InstallAppButton variant="icon" />
+              
               {/* Theme Toggle */}
               <motion.button
                 whileHover={{ scale: 1.05 }}

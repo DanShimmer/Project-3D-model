@@ -1,0 +1,58 @@
+{
+  "name": "Polyva 3D - AI Model Generator",
+  "short_name": "Polyva 3D",
+  "description": "Transform text and images into stunning 3D models with AI. The easiest and fastest way to create 3D content.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#84cc16",
+  "orientation": "any",
+  "categories": ["productivity", "graphics", "design"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Polyva 3D Desktop View"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Generate 3D",
+      "short_name": "Generate",
+      "description": "Create a new 3D model",
+      "url": "/generate",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "My Storage",
+      "short_name": "Storage",
+      "description": "View your saved models",
+      "url": "/my-storage",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

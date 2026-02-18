@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import LoginModal from "./Components/LoginModal";
 import AvatarModal, { getAvatarById } from "./Components/AvatarModal";
+import InstallAppButton from "./Components/InstallAppButton";
 import { useAuth } from "./contexts/AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
 import Logo, { LogoIcon } from "./Components/Logo";
@@ -242,6 +243,9 @@ export default function PolyvaApp() {
 
             {/* Right side */}
             <div className="flex items-center gap-3">
+              {/* Install App Button */}
+              <InstallAppButton variant="compact" />
+              
               {/* Theme Toggle Button */}
               <motion.button
                 whileHover={{ scale: 1.05 }}
