@@ -152,6 +152,10 @@ export default function AnimationPanel({
   const handleSelectAnimation = (animation) => {
     setSelectedAnimation(animation.id);
     onSelectAnimation?.(animation);
+    // Auto play after selection
+    setTimeout(() => {
+      onPlayAnimation?.(animation.id);
+    }, 100);
   };
 
   const handlePlayPause = () => {

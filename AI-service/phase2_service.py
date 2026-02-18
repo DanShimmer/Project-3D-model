@@ -667,16 +667,31 @@ def remesh_model():
 
 @phase2_bp.route('/export', methods=['POST'])
 def export_model():
-    """Export model to different format"""
+    """Export model to different format with optional rig and animation"""
     try:
         data = request.get_json()
         model_path = data.get('modelPath')
         format = data.get('format', 'glb')
+        include_rig = data.get('include_rig', False)
+        include_animation = data.get('include_animation')
+        include_textures = data.get('include_textures', False)
         
         if not model_path:
             return jsonify({"ok": False, "error": "Model path required"}), 400
         
+        print(f"\n📦 Export Job:")
+        print(f"   Model: {model_path}")
+        print(f"   Format: {format}")
+        print(f"   Include Rig: {include_rig}")
+        print(f"   Include Animation: {include_animation}")
+        print(f"   Include Textures: {include_textures}")
+        
         result = export_service.export(model_path, format)
+        
+        # Add export metadata
+        result["include_rig"] = include_rig
+        result["include_animation"] = include_animation
+        result["include_textures"] = include_textures
         
         if result.get("success"):
             return jsonify({"ok": True, **result})

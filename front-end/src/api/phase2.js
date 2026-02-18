@@ -295,26 +295,34 @@ export async function remeshModel(modelPath, topology = "triangle", quality = "m
 // ============================================
 
 /**
- * Export model to specified format
+ * Export model to specified format with optional rig and animation
  * @param {string} modelPath - Path to source model
  * @param {string} format - Target format (glb, obj, fbx, usdz, stl, 3mf, blend)
+ * @param {object} options - Export options (include_rig, include_animation, etc.)
  */
-export async function exportModel(modelPath, format = "glb") {
+export async function exportModel(modelPath, format = "glb", options = {}) {
   try {
-    console.log("Exporting model:", { modelPath, format });
+    console.log("Exporting model:", { modelPath, format, options });
     const res = await fetch(`${PHASE2_BASE}/export`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders()
       },
-      body: JSON.stringify({ modelPath, format })
+      body: JSON.stringify({ 
+        modelPath, 
+        format,
+        include_rig: options.include_rig || false,
+        include_animation: options.include_animation || null,
+        include_textures: options.include_textures || false
+      })
     });
     return safeJsonResponse(res, {
       ok: true,
       demo_mode: true,
       message: `Model exported to ${format.toUpperCase()} (fallback demo mode)`,
       exportedPath: modelPath.replace(/\.[^.]+$/, `.${format}`),
+      download_url: null, // Demo mode has no download URL
       format: format,
       size: "2.5 MB"
     });
@@ -324,7 +332,8 @@ export async function exportModel(modelPath, format = "glb") {
       ok: true,
       demo_mode: true,
       message: `Model exported to ${format.toUpperCase()} (fallback demo mode)`,
-      format: format
+      format: format,
+      download_url: null
     };
   }
 }

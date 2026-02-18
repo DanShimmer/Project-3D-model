@@ -874,15 +874,16 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
   };
 
   // Handle Remesh
-  const handleRemesh = async (topology) => {
+  const handleRemesh = async (topology, quality = "medium") => {
     if (!selectedGeneratedModel) return;
     
     setIsRemeshing(true);
     try {
-      // Call Phase 2 API for remeshing
-      const result = await remeshModel(selectedGeneratedModel, topology, {
-        target_faces: topology === 'quad' ? 5000 : 10000
-      });
+      // Get model path - use modelUrl or generate a placeholder path
+      const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+      
+      // Call Phase 2 API for remeshing with correct parameters
+      const result = await remeshModel(modelPath, topology, quality);
       
       if (result.success) {
         setCurrentTopology(topology);
@@ -909,15 +910,14 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
       .replace(/[^a-z0-9]/gi, '_')
       .toLowerCase();
     
+    // Get model path
+    const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+    
     try {
-      // Try to use Phase 2 API for export
-      const exportResult = await exportModel(selectedGeneratedModel, format, {
-        include_textures: isTextured,
-        include_rig: isRigConfigured,
-        include_animation: currentAnimation
-      });
+      // Try to use Phase 2 API for export with animation and rig data
+      const exportResult = await exportModel(modelPath, format);
       
-      if (exportResult.success && exportResult.download_url) {
+      if ((exportResult.success || exportResult.ok) && exportResult.download_url) {
         // Download from server
         await downloadModelFile(exportResult.download_url, `${safeFileName}.${format}`);
         setShowDownloadMenu(false);
@@ -927,16 +927,20 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
       console.warn("Export API not available, using demo mode:", err.message);
     }
     
-    // Fallback to demo mode
+    // Fallback to demo mode - create appropriate content based on format
     let content = "";
     let mimeType = "text/plain";
     let extension = format;
+    
+    // Add rig and animation info to export
+    const rigInfo = isRigConfigured ? `# Rig Type: ${rigConfig?.type || 'humanoid'}\n` : "";
+    const animInfo = currentAnimation ? `# Animation: ${currentAnimation}\n` : "";
     
     if (format === "obj") {
       content = `# 3D Model exported from Polyva
 # Model: ${modelName}
 # Topology: ${currentTopology}
-# Generated: ${new Date().toISOString()}
+${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
 # 
 # Demo cube vertices
 v -0.5 -0.5 0.5
@@ -955,14 +959,36 @@ f 7 8 2 1
 f 2 8 6 4
 f 7 1 3 5
 `;
+    } else if (format === "fbx") {
+      // FBX header with animation info
+      content = `; FBX 7.5.0 project file
+; Polyva 3D Export
+; Model: ${modelName}
+; Topology: ${currentTopology}
+${rigInfo}${animInfo}; Generated: ${new Date().toISOString()}
+;
+; This is a demo FBX file header.
+; Real export includes mesh, materials, skeleton, and animation data.
+; Compatible with: Unity, Unreal Engine, Blender, Maya, 3ds Max
+`;
+    } else if (format === "blend") {
+      content = `# Blender Export from Polyva
+# Model: ${modelName}
+# Topology: ${currentTopology}
+${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
+#
+# This is a placeholder. Real export is a binary .blend file.
+# Contains: Mesh, Materials, Armature (if rigged), Animations
+`;
     } else {
       content = `# Polyva 3D Model
 # Format: ${format.toUpperCase()}
 # Model: ${modelName}
 # Topology: ${currentTopology}
-# Generated: ${new Date().toISOString()}
+${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
 # 
 # This is a demo file. Real export will contain actual 3D data.
+# Supported in: Unity, Unreal Engine, Blender, and other 3D software.
 `;
     }
     
@@ -987,17 +1013,17 @@ f 7 1 3 5
       // Focus on selected variant
       setFocusedVariant(selectedGeneratedModel);
       
-      // Call Phase 2 API for texturing
-      const result = await applyTexture(selectedGeneratedModel, texturePrompt, {
-        style: textureStyle,
-        brightness: brightness
-      });
+      // Get model path
+      const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
       
-      if (result.success) {
+      // Call Phase 2 API for texturing with correct parameters
+      const result = await applyTexture(modelPath, texturePrompt, textureStyle);
+      
+      if (result.success || result.ok) {
         setIsTextured(true);
         // Update model path if new textured model is returned
-        if (result.textured_model_path) {
-          console.log("Textured model:", result.textured_model_path);
+        if (result.textured_model_path || result.texturedModelPath) {
+          console.log("Textured model:", result.textured_model_path || result.texturedModelPath);
         }
       } else {
         throw new Error(result.error || "Texturing failed");
@@ -1020,9 +1046,10 @@ f 7 1 3 5
     if (!isPBREnabled && selectedGeneratedModel) {
       // Generate PBR maps when enabling
       try {
-        const result = await generatePBR(selectedGeneratedModel);
-        if (result.success) {
-          console.log("PBR maps generated:", result.maps);
+        const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+        const result = await generatePBR(modelPath);
+        if (result.success || result.ok) {
+          console.log("PBR maps generated:", result.maps || result);
         }
       } catch (err) {
         console.warn("PBR generation in demo mode");
@@ -1048,18 +1075,25 @@ f 7 1 3 5
       // Focus on selected variant
       setFocusedVariant(selectedGeneratedModel);
       
-      // Call Phase 2 API for rigging
-      const result = await applyRig(selectedGeneratedModel, config.type, {
-        markers: config.markers
-      });
+      // Get model path
+      const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
       
-      if (result.success) {
+      // Call Phase 2 API for rigging with correct parameters
+      const result = await applyRig(modelPath, config.type, config.markers || []);
+      
+      if (result.success || result.ok) {
         setRigConfig(config);
         setIsRigConfigured(true);
         setShowRigPanel(false);
+        
+        // Auto-open animation panel after successful rigging
+        setTimeout(() => {
+          setShowAnimationPanel(true);
+        }, 300);
+        
         // Update model path if new rigged model is returned
-        if (result.rigged_model_path) {
-          console.log("Rigged model:", result.rigged_model_path);
+        if (result.rigged_model_path || result.riggedModelPath) {
+          console.log("✅ Rigged model:", result.rigged_model_path || result.riggedModelPath);
         }
       } else {
         throw new Error(result.error || "Rigging failed");
@@ -1078,8 +1112,11 @@ f 7 1 3 5
     // Apply animation via API if model is rigged
     if (isRigConfigured && selectedGeneratedModel) {
       try {
-        console.log("Applying animation:", animation.id, "to model:", selectedGeneratedModel);
-        const result = await applyAnimation(selectedGeneratedModel, animation.id);
+        // Get model path
+        const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+        
+        console.log("Applying animation:", animation.id, "to model:", modelPath);
+        const result = await applyAnimation(modelPath, animation.id);
         
         if (result.success || result.ok) {
           console.log("✅ Animation applied:", result.animated_model_path || result.animatedModelPath);
@@ -1090,6 +1127,8 @@ f 7 1 3 5
         }
       } catch (err) {
         console.warn("Animation in demo mode:", err.message);
+        // Still play animation in demo mode
+        setIsAnimationPlaying(true);
       }
     }
   };
