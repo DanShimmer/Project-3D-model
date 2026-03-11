@@ -489,21 +489,23 @@ export default function MyStorage() {
                 transition={{ delay: index * 0.05 }}
                 className={`bg-gray-900/80 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden hover:border-white/20 transition-colors group`}
               >
-                {/* Thumbnail - Always use DemoModelPreview for demo models */}
+                {/* Thumbnail - show real AI thumbnail or fallback to DemoModelPreview */}
                 <div className={`aspect-square bg-gray-800/50 relative overflow-hidden`}>
-                  {model.thumbnailUrl && !model.isDemo && model.thumbnailUrl.startsWith('http') ? (
+                  {model.thumbnailUrl && model.thumbnailUrl.startsWith('http') ? (
                     <img
                       src={model.thumbnailUrl}
                       alt={model.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain bg-gray-900"
+                      style={{ mixBlendMode: 'normal' }}
                       onError={(e) => {
                         // If image fails to load, hide it and show demo model
                         e.target.style.display = 'none';
+                        e.target.nextElementSibling?.classList.remove('hidden');
                       }}
                     />
                   ) : null}
-                  {/* Always show DemoModelPreview as fallback or primary for demo models */}
-                  <div className={`absolute inset-0 ${model.thumbnailUrl && !model.isDemo && model.thumbnailUrl.startsWith('http') ? 'hidden' : ''}`}>
+                  {/* DemoModelPreview as fallback when no real thumbnail */}
+                  <div className={`absolute inset-0 ${model.thumbnailUrl && model.thumbnailUrl.startsWith('http') ? 'hidden' : ''}`}>
                     <DemoModelPreview 
                       modelType={model.modelType || getModelTypeFromPrompt(model.prompt || model.name)}
                       variant={model.variant || 1}
@@ -604,8 +606,8 @@ export default function MyStorage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className={`w-12 h-12 bg-gray-800/50 rounded-lg flex items-center justify-center overflow-hidden`}>
-                          {model.thumbnailUrl && !model.isDemo ? (
-                            <img src={model.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                          {model.thumbnailUrl && model.thumbnailUrl.startsWith('http') ? (
+                            <img src={model.thumbnailUrl} alt="" className="w-full h-full object-contain" />
                           ) : (
                             <DemoModelPreview 
                               modelType={model.modelType || getModelTypeFromPrompt(model.prompt)}

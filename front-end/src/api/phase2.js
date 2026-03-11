@@ -2,15 +2,14 @@
  * Phase 2 API - Advanced 3D Processing
  * Texturing, Rigging, Animation, Remeshing, Export
  * 
- * GPU MODE: Real AI processing with GPU backend
- * Falls back to demo mode only if backend is unavailable
+ * Real AI processing via backend proxy → AI service (port 8000)
+ * No more demo mode fallbacks - shows real errors to user
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const PHASE2_BASE = `${API_BASE}/phase2`;
 
-// Demo mode flag - set to FALSE to use real AI backend
-// Will auto-fallback to demo if backend unavailable
+// Demo mode flag - DISABLED: use real AI backend
 const DEMO_MODE = false;
 
 const authHeaders = () => {
@@ -18,23 +17,23 @@ const authHeaders = () => {
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
-// Helper to safely parse JSON response, returns demo response on error
-const safeJsonResponse = async (res, demoResponse) => {
+// Helper to safely parse JSON response - returns real errors instead of demo fallback
+const safeJsonResponse = async (res) => {
   try {
-    // Check if response is HTML (error page)
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("text/html")) {
-      console.warn("Phase 2 API returned HTML, falling back to demo mode");
-      return demoResponse;
+      throw new Error("Phase 2 service returned an unexpected response. Is the AI service running?");
     }
+    const data = await res.json();
     if (!res.ok) {
-      console.warn(`Phase 2 API error ${res.status}, falling back to demo mode`);
-      return demoResponse;
+      throw new Error(data.error || data.msg || `Phase 2 API error (${res.status})`);
     }
-    return await res.json();
+    return data;
   } catch (error) {
-    console.warn("Phase 2 API parse error, falling back to demo mode:", error.message);
-    return demoResponse;
+    if (error instanceof SyntaxError) {
+      throw new Error("Phase 2 service returned invalid data. Is the AI service running?");
+    }
+    throw error;
   }
 };
 
@@ -44,15 +43,14 @@ const safeJsonResponse = async (res, demoResponse) => {
 export async function checkPhase2Health() {
   try {
     const res = await fetch(`${PHASE2_BASE}/health`);
-    const data = await safeJsonResponse(res, { ok: true, phase2_enabled: true, demo_mode: true });
+    const data = await safeJsonResponse(res);
     console.log("Phase 2 health check:", data);
-    return data;
+    return { ...data, ok: true };
   } catch (error) {
     console.error("Phase 2 health check error:", error);
     return { 
-      ok: true, 
-      phase2_enabled: true,
-      demo_mode: true,
+      ok: false, 
+      phase2_enabled: false,
       error: error.message 
     };
   }
@@ -67,34 +65,27 @@ export async function checkPhase2Health() {
  * @param {string} modelPath - Path to the model
  * @param {string} prompt - Optional text prompt for texture style
  * @param {string} style - Texture style (realistic, cartoon, stylized)
+ * @param {string[]} aiOptions - AI options (auto-color, shadows, depth, detail)
  */
-export async function applyTexture(modelPath, prompt = null, style = "realistic") {
+export async function applyTexture(modelPath, prompt = null, style = "realistic", aiOptions = ["auto-color"]) {
   try {
-    console.log("Applying AI texture:", { modelPath, style, prompt });
+    console.log("Applying AI texture:", { modelPath, style, prompt, aiOptions });
     const res = await fetch(`${PHASE2_BASE}/texture`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders()
       },
-      body: JSON.stringify({ modelPath, prompt, style })
+      body: JSON.stringify({ modelPath, prompt, style, aiOptions })
     });
-    const result = await safeJsonResponse(res, {
-      ok: true,
-      demo_mode: true,
-      message: "Texture applied successfully (fallback demo mode)",
-      texturedModelPath: modelPath
-    });
+    const result = await safeJsonResponse(res);
     console.log("Texture result:", result);
-    return result;
+    return { ...result, ok: true };
   } catch (error) {
     console.error("Apply texture error:", error);
-    // Return demo success as fallback
     return {
-      ok: true,
-      demo_mode: true,
-      message: "Texture applied successfully (fallback demo mode)",
-      texturedModelPath: modelPath
+      ok: false,
+      error: error.message
     };
   }
 }
@@ -114,20 +105,14 @@ export async function generatePBR(modelPath) {
       },
       body: JSON.stringify({ modelPath })
     });
-    return safeJsonResponse(res, {
-      ok: true,
-      demo_mode: true,
-      message: "PBR maps generated (fallback demo mode)",
-      normalMap: null,
-      roughnessMap: null,
-      metallicMap: null
-    });
+    const result = await safeJsonResponse(res);
+    console.log("PBR result:", result);
+    return { ...result, ok: true };
   } catch (error) {
     console.error("Generate PBR error:", error);
     return {
-      ok: true,
-      demo_mode: true,
-      message: "PBR maps generated (fallback demo mode)"
+      ok: false,
+      error: error.message
     };
   }
 }
@@ -153,25 +138,14 @@ export async function applyRig(modelPath, characterType = "humanoid", markers = 
       },
       body: JSON.stringify({ modelPath, characterType, markers })
     });
-    const result = await safeJsonResponse(res, {
-      ok: true,
-      demo_mode: true,
-      message: "Rigging applied successfully (fallback demo mode)",
-      riggedModelPath: modelPath,
-      characterType: characterType,
-      boneCount: characterType === "humanoid" ? 24 : 18,
-      animationReady: true
-    });
+    const result = await safeJsonResponse(res);
     console.log("Rig result:", result);
-    return result;
+    return { ...result, ok: true };
   } catch (error) {
     console.error("Apply rig error:", error);
     return {
-      ok: true,
-      demo_mode: true,
-      message: "Rigging applied successfully (fallback demo mode)",
-      riggedModelPath: modelPath,
-      animationReady: true
+      ok: false,
+      error: error.message
     };
   }
 }
@@ -188,26 +162,14 @@ export async function getAnimations() {
     const res = await fetch(`${PHASE2_BASE}/animations`, {
       headers: authHeaders()
     });
-    return safeJsonResponse(res, {
-      ok: true,
-      demo_mode: true,
-      animations: [
-        { id: "idle", name: "Idle", duration: 2.0 },
-        { id: "walk", name: "Walk", duration: 1.5 },
-        { id: "run", name: "Run", duration: 1.0 },
-        { id: "jump", name: "Jump", duration: 0.8 },
-        { id: "wave", name: "Wave", duration: 1.5 }
-      ]
-    });
+    const result = await safeJsonResponse(res);
+    return { ...result, ok: true };
   } catch (error) {
     console.error("Get animations error:", error);
     return {
-      ok: true,
-      demo_mode: true,
-      animations: [
-        { id: "idle", name: "Idle", duration: 2.0 },
-        { id: "walk", name: "Walk", duration: 1.5 }
-      ]
+      ok: false,
+      error: error.message,
+      animations: []
     };
   }
 }
@@ -228,20 +190,13 @@ export async function applyAnimation(modelPath, animationId) {
       },
       body: JSON.stringify({ modelPath, animationId })
     });
-    return safeJsonResponse(res, {
-      ok: true,
-      demo_mode: true,
-      message: "Animation applied successfully (fallback demo mode)",
-      animatedModelPath: modelPath,
-      animationId: animationId
-    });
+    const result = await safeJsonResponse(res);
+    return { ...result, ok: true };
   } catch (error) {
     console.error("Apply animation error:", error);
     return {
-      ok: true,
-      demo_mode: true,
-      message: "Animation applied successfully (fallback demo mode)",
-      animatedModelPath: modelPath
+      ok: false,
+      error: error.message
     };
   }
 }
@@ -267,25 +222,14 @@ export async function remeshModel(modelPath, topology = "triangle", quality = "m
       },
       body: JSON.stringify({ modelPath, topology, quality })
     });
-    const result = await safeJsonResponse(res, {
-      ok: true,
-      demo_mode: true,
-      message: `Remesh to ${topology} completed (fallback demo mode)`,
-      remeshed_model_path: modelPath,
-      topology: topology,
-      original_stats: { vertices: 10000, faces: 20000 },
-      new_stats: { vertices: 5000, faces: topology === "quad" ? 5000 : 10000 }
-    });
+    const result = await safeJsonResponse(res);
     console.log("Remesh result:", result);
-    return result;
+    return { ...result, ok: true };
   } catch (error) {
     console.error("Remesh error:", error);
     return {
-      ok: true,
-      demo_mode: true,
-      message: `Remesh to ${topology} completed (fallback demo mode)`,
-      remeshed_model_path: modelPath,
-      topology: topology
+      ok: false,
+      error: error.message
     };
   }
 }
@@ -317,23 +261,13 @@ export async function exportModel(modelPath, format = "glb", options = {}) {
         include_textures: options.include_textures || false
       })
     });
-    return safeJsonResponse(res, {
-      ok: true,
-      demo_mode: true,
-      message: `Model exported to ${format.toUpperCase()} (fallback demo mode)`,
-      exportedPath: modelPath.replace(/\.[^.]+$/, `.${format}`),
-      download_url: null, // Demo mode has no download URL
-      format: format,
-      size: "2.5 MB"
-    });
+    const result = await safeJsonResponse(res);
+    return { ...result, ok: true };
   } catch (error) {
     console.error("Export error:", error);
     return {
-      ok: true,
-      demo_mode: true,
-      message: `Model exported to ${format.toUpperCase()} (fallback demo mode)`,
-      format: format,
-      download_url: null
+      ok: false,
+      error: error.message
     };
   }
 }

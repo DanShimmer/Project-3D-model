@@ -24,7 +24,7 @@ const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 
 // Demo mode - set to true to bypass AI service and return instant demo results
 // Enable this when AI service is too slow (CPU-only) or crashes due to low memory
-const DEMO_MODE = process.env.DEMO_MODE === "true" || true;
+const DEMO_MODE = process.env.DEMO_MODE === "true";
 
 interface GenerateJob {
   jobId: string;
@@ -55,7 +55,7 @@ export const textTo3D = async (req: Request, res: Response) => {
       return res.status(401).json({ ok: false, msg: "Authentication required" });
     }
     
-    const { prompt, mode = "fast" } = req.body;
+    const { prompt, mode = "fast", seed } = req.body;
 
     // Validation
     if (!prompt || typeof prompt !== "string") {
@@ -88,7 +88,7 @@ export const textTo3D = async (req: Request, res: Response) => {
     };
     jobs.set(jobId, job);
 
-    console.log(`📝 Text-to-3D Job created: ${jobId}`);
+    console.log(`📝 Text-to-3D Job created: ${jobId}${seed ? ` (seed: ${seed})` : ''}`);
 
     // Demo mode - bypass AI service and return instant demo results
     if (DEMO_MODE) {
@@ -137,9 +137,10 @@ export const textTo3D = async (req: Request, res: Response) => {
       const response = await axios.post(`${AI_SERVICE_URL}/api/text-to-3d`, {
         prompt: trimmedPrompt,
         mode,
-        jobId
+        jobId,
+        ...(seed !== undefined && { seed: Number(seed) })
       }, {
-        timeout: 300000 // 5 minutes timeout
+        timeout: 900000 // 15 minutes timeout (SDXL first-run downloads ~6.5GB model)
       });
 
       if (response.data.ok) {
@@ -302,7 +303,7 @@ export const imageTo3D = async (req: MulterRequest, res: Response) => {
         headers: {
           ...formData.getHeaders()
         },
-        timeout: 300000, // 5 minutes timeout
+        timeout: 900000, // 15 minutes timeout (first-run downloads models)
         maxContentLength: Infinity,
         maxBodyLength: Infinity
       });
@@ -310,7 +311,9 @@ export const imageTo3D = async (req: MulterRequest, res: Response) => {
       if (response.data.ok) {
         job.status = "completed";
         job.modelUrl = `${AI_SERVICE_URL}${response.data.modelPath}`;
-        job.imageUrl = `${AI_SERVICE_URL}${response.data.preprocessedImage}`;
+        // Use 3D thumbnail if available, otherwise fall back to preprocessed image
+        const thumbUrl = response.data.imageUrl || response.data.preprocessedImage;
+        job.imageUrl = `${AI_SERVICE_URL}${thumbUrl}`;
         job.completedAt = new Date();
 
         // Save to database
@@ -408,6 +411,111 @@ export const getJobStatus = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error("Get job status error:", error);
+    return res.status(500).json({ ok: false, msg: error.message || "Server error" });
+  }
+};
+
+/**
+ * Text to 3D Batch Generation (4 variants)
+ * POST /api/generate/text-to-3d-batch
+ */
+export const textTo3DBatch = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?._id;
+    
+    if (!userId) {
+      return res.status(401).json({ ok: false, msg: "Authentication required" });
+    }
+    
+    const { prompt, mode = "fast", num_variants = 4 } = req.body;
+
+    if (!prompt || typeof prompt !== "string") {
+      return res.status(400).json({ ok: false, msg: "Prompt is required" });
+    }
+
+    const trimmedPrompt = prompt.trim();
+    if (trimmedPrompt.length === 0) {
+      return res.status(400).json({ ok: false, msg: "Prompt cannot be empty" });
+    }
+
+    const jobId = uuidv4();
+    console.log(`📝 Text-to-3D BATCH Job created: ${jobId} (${num_variants} variants)`);
+
+    // Demo mode
+    if (DEMO_MODE) {
+      const variants = [];
+      for (let i = 0; i < Math.min(num_variants, 4); i++) {
+        variants.push({
+          modelPath: "/demo/model.glb",
+          imageUrl: "/demo/preview.png",
+          seed: Math.floor(Math.random() * 2147483647),
+          variant: i + 1
+        });
+      }
+      return res.json({ ok: true, jobId, isDemo: true, variants });
+    }
+
+    // Call AI Service batch endpoint
+    try {
+      const response = await axios.post(`${AI_SERVICE_URL}/api/text-to-3d-batch`, {
+        prompt: trimmedPrompt,
+        mode,
+        num_variants: Math.min(num_variants, 4),
+        jobId
+      }, {
+        timeout: 1800000 // 30 minutes timeout for batch (4 models)
+      });
+
+      if (response.data.ok) {
+        // Save all variants to database
+        const variants = response.data.variants.map((v: any) => ({
+          ...v,
+          modelUrl: `${AI_SERVICE_URL}${v.modelPath}`,
+          imageUrl: `${AI_SERVICE_URL}${v.imageUrl}`
+        }));
+
+        // Save first variant as the primary model
+        const newModel = new Model({
+          userId,
+          name: `${trimmedPrompt.slice(0, 50)}${trimmedPrompt.length > 50 ? '...' : ''}`,
+          type: "text-to-3d",
+          prompt: trimmedPrompt,
+          mode,
+          modelUrl: variants[0].modelUrl,
+          thumbnailUrl: variants[0].imageUrl,
+          isPublic: false
+        });
+        await newModel.save();
+
+        return res.json({
+          ok: true,
+          jobId,
+          modelId: newModel._id,
+          variants,
+          elapsed: response.data.elapsed
+        });
+      } else {
+        throw new Error(response.data.error || "AI Service error");
+      }
+
+    } catch (aiError: any) {
+      console.error(`❌ Text-to-3D Batch failed: ${aiError.message}`);
+      
+      if (aiError.code === "ECONNREFUSED") {
+        return res.status(503).json({ 
+          ok: false, 
+          msg: "AI Service is not available. Please try again later." 
+        });
+      }
+      
+      return res.status(500).json({ 
+        ok: false, 
+        msg: aiError.response?.data?.error || aiError.message || "Batch generation failed" 
+      });
+    }
+
+  } catch (error: any) {
+    console.error("Text-to-3D Batch error:", error);
     return res.status(500).json({ ok: false, msg: error.message || "Server error" });
   }
 };

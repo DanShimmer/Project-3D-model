@@ -12,7 +12,12 @@ on:
         required: true
         default: 'v1.0.0'
 
+env:
+  # Determine the release tag: use input version for manual dispatch, otherwise use the git tag
+  RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
+
 jobs:
+  # ─────────────────────────── Windows Build ───────────────────────────
   build-windows:
     runs-on: windows-latest
     steps:
@@ -42,9 +47,10 @@ jobs:
           name: windows-builds
           path: |
             front-end/release/*.exe
-            front-end/release/*.msi
+          if-no-files-found: error
           retention-days: 5
 
+  # ─────────────────────────── macOS Build ─────────────────────────────
   build-macos:
     runs-on: macos-latest
     steps:
@@ -58,6 +64,23 @@ jobs:
           cache: 'npm'
           cache-dependency-path: front-end/package-lock.json
 
+      - name: Generate macOS icon (.icns)
+        working-directory: front-end
+        run: |
+          mkdir -p icon.iconset
+          sips -z 16 16     public/icons/icon-512x512.png --out icon.iconset/icon_16x16.png
+          sips -z 32 32     public/icons/icon-512x512.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     public/icons/icon-512x512.png --out icon.iconset/icon_32x32.png
+          sips -z 64 64     public/icons/icon-512x512.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   public/icons/icon-512x512.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256   public/icons/icon-512x512.png --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   public/icons/icon-512x512.png --out icon.iconset/icon_256x256.png
+          sips -z 512 512   public/icons/icon-512x512.png --out icon.iconset/icon_256x256@2x.png
+          cp public/icons/icon-512x512.png icon.iconset/icon_512x512.png
+          iconutil -c icns icon.iconset -o public/icon.icns
+          rm -rf icon.iconset
+          echo "✅ icon.icns generated"
+
       - name: Install dependencies
         working-directory: front-end
         run: npm ci
@@ -67,6 +90,7 @@ jobs:
         run: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false  # Skip code signing (no Apple Developer cert in CI)
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -75,8 +99,10 @@ jobs:
           path: |
             front-end/release/*.dmg
             front-end/release/*.zip
+          if-no-files-found: error
           retention-days: 5
 
+  # ─────────────────────────── Linux Build ─────────────────────────────
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -108,27 +134,47 @@ jobs:
             front-end/release/*.AppImage
             front-end/release/*.deb
             front-end/release/*.rpm
+          if-no-files-found: error
           retention-days: 5
 
+  # ─────────────────────────── Create Release ──────────────────────────
   create-release:
     needs: [build-windows, build-macos, build-linux]
+    # Run even if some builds failed — create release with whatever succeeded
+    if: always() && (needs.build-windows.result == 'success' || needs.build-macos.result == 'success' || needs.build-linux.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create tag for workflow_dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag -f ${{ env.RELEASE_TAG }}
+          git push origin ${{ env.RELEASE_TAG }} --force
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: List artifacts
-        run: find artifacts -type f | head -50
+        run: |
+          echo "=== Downloaded artifacts ==="
+          find artifacts -type f 2>/dev/null || echo "No artifacts found"
+          echo "=== Total files ==="
+          find artifacts -type f 2>/dev/null | wc -l
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || github.event.inputs.version }}
-          name: "Polyva 3D ${{ github.ref_name || github.event.inputs.version }}"
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Polyva 3D ${{ env.RELEASE_TAG }}"
           body: |
             ## 🚀 Polyva 3D Desktop App
 
@@ -136,7 +182,7 @@ jobs:
             | Platform | File | Type |
             |----------|------|------|
             | 🪟 Windows | `Polyva-3D-*-Setup.exe` | Installer (Recommended) |
-            | 🪟 Windows | `Polyva-3D-*.exe` | Portable |
+            | 🪟 Windows | `Polyva-3D-*-Portable.exe` | Portable |
             | 🍎 macOS | `Polyva-3D-*.dmg` | DMG Installer |
             | 🍎 macOS | `Polyva-3D-*.zip` | ZIP Archive |
             | 🐧 Linux | `Polyva-3D-*.AppImage` | AppImage |
@@ -155,6 +201,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            artifacts/**/*
+            artifacts/**
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

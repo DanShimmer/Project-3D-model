@@ -12,14 +12,16 @@ import sys
 import os
 import gc
 
-# Add TripoSR to path if cloned locally
-TRIPOSR_PATH = os.getenv("TRIPOSR_PATH", "./TripoSR")
+
+# Resolve TripoSR path relative to THIS file, not CWD
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+TRIPOSR_PATH = os.getenv("TRIPOSR_PATH", os.path.join(_THIS_DIR, "TripoSR"))
 if os.path.exists(TRIPOSR_PATH):
     sys.path.insert(0, TRIPOSR_PATH)
+    print(f"✅ TripoSR path resolved: {TRIPOSR_PATH}")
 
-from config import TripoConfig, DEVICE, OUTPUT_DIR
+from config import TripoConfig, DEVICE, OUTPUT_DIR, CACHE_DIR
 
-# Import GPU optimizer
 try:
     from gpu_optimizer import gpu_optimizer
     GPU_OPTIMIZER_AVAILABLE = True
@@ -36,16 +38,33 @@ def check_vram_before_inference():
     total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
     free = total - allocated
     
-    # TripoSR needs ~3-4GB, require at least 4GB free
+    
     if free < 4.0:
         print(f"⚠️ Low VRAM ({free:.1f}GB free), clearing cache...")
         torch.cuda.empty_cache()
         gc.collect()
         
-        # Check again
+        
         allocated = torch.cuda.memory_allocated() / (1024 ** 3)
         free = total - allocated
         print(f"  ✓ After clear: {free:.1f}GB free")
+
+
+def _download_triposr_files():
+    """Pre-download TripoSR files to local cache using hf_hub_download (supports resume)"""
+    from huggingface_hub import hf_hub_download
+    
+    config_path = hf_hub_download(
+        repo_id=TripoConfig.MODEL_ID,
+        filename="config.yaml",
+        cache_dir=str(CACHE_DIR)
+    )
+    weight_path = hf_hub_download(
+        repo_id=TripoConfig.MODEL_ID,
+        filename="model.ckpt",
+        cache_dir=str(CACHE_DIR)
+    )
+    return config_path, weight_path
 
 
 class TripoSRGenerator:
@@ -62,18 +81,23 @@ class TripoSRGenerator:
         print("📦 Loading TripoSR model...")
         
         try:
-            # Try to import from local TripoSR installation
+           
             from tsr.system import TSR
             
+            print("  📥 Checking model files in cache...")
+            config_path, weight_path = _download_triposr_files()
+            
+
+            local_dir = str(Path(config_path).parent)
             self.model = TSR.from_pretrained(
-                TripoConfig.MODEL_ID,
+                local_dir,
                 config_name="config.yaml",
                 weight_name="model.ckpt"
             )
             self.model.to(DEVICE)
             self.use_local = True
             
-            # Enable optimizations for local version
+  
             if DEVICE == "cuda":
                 try:
                     self.model.renderer.set_chunk_size(TripoConfig.CHUNK_SIZE)
@@ -81,16 +105,49 @@ class TripoSRGenerator:
                     pass
             
         except ImportError as e:
-            # Fallback: Use HuggingFace transformers version
-            print(f"  ⚠️ Local TripoSR not found ({e}), using HuggingFace version...")
-            from transformers import AutoModel, AutoProcessor
+    
+            print(f"  ⚠️ Local TripoSR not found ({e})")
+            print(f"  📁 Expected TripoSR at: {TRIPOSR_PATH}")
+            print(f"  📁 Exists? {os.path.exists(TRIPOSR_PATH)}")
+            if os.path.exists(TRIPOSR_PATH):
+                print(f"  📁 Contents: {os.listdir(TRIPOSR_PATH)}")
+                tsr_dir = os.path.join(TRIPOSR_PATH, "tsr")
+                if os.path.exists(tsr_dir):
+                    print(f"  📁 tsr/ contents: {os.listdir(tsr_dir)}")
+                else:
+                    print(f"  ❌ tsr/ directory NOT FOUND in {TRIPOSR_PATH}")
             
-            self.model = AutoModel.from_pretrained(
-                "stabilityai/TripoSR",
-                trust_remote_code=True
-            )
-            self.model.to(DEVICE)
-            self.use_local = False
+            # Try again with absolute path forced into sys.path
+            abs_triposr = os.path.abspath(TRIPOSR_PATH)
+            if abs_triposr not in sys.path:
+                sys.path.insert(0, abs_triposr)
+            
+            try:
+                from tsr.system import TSR
+                print("  ✅ TripoSR found after path fix!")
+                
+                config_path, weight_path = _download_triposr_files()
+                local_dir = str(Path(config_path).parent)
+                self.model = TSR.from_pretrained(
+                    local_dir,
+                    config_name="config.yaml",
+                    weight_name="model.ckpt"
+                )
+                self.model.to(DEVICE)
+                self.use_local = True
+                
+                if DEVICE == "cuda":
+                    try:
+                        self.model.renderer.set_chunk_size(TripoConfig.CHUNK_SIZE)
+                    except:
+                        pass
+            except ImportError as e2:
+                raise RuntimeError(
+                    f"TripoSR module 'tsr' not found. "
+                    f"Checked paths: {TRIPOSR_PATH}, {abs_triposr}. "
+                    f"Make sure TripoSR is cloned into AI-service/TripoSR/. "
+                    f"Original error: {e2}"
+                )
         
         self.initialized = True
         print("  ✓ TripoSR loaded")
@@ -99,31 +156,36 @@ class TripoSRGenerator:
         self,
         image: Image.Image,
         output_path: str = None,
-        mc_resolution: int = None
+        mc_resolution: int = None,
+        mc_threshold: float = None
     ) -> str:
         """
         Generate 3D mesh from image
         
         Args:
-            image: Preprocessed PIL Image (should have white/clean background)
+            image: Preprocessed PIL Image (should have gray background)
             output_path: Where to save the .glb file
-            mc_resolution: Marching cubes resolution
+            mc_resolution: Marching cubes resolution (higher = more detail)
+            mc_threshold: Isosurface threshold (lower = more solid, fewer holes)
             
         Returns:
             Path to the generated .glb file
         """
-        # Check VRAM before loading model
+ 
         check_vram_before_inference()
         
         self._load_model()
         
         if mc_resolution is None:
             mc_resolution = TripoConfig.MC_RESOLUTION
-            # Use GPU optimizer settings if available
+    
             if GPU_OPTIMIZER_AVAILABLE:
                 mc_resolution = gpu_optimizer.optimizations["triposr"]["mc_resolution"]
+        
+        if mc_threshold is None:
+            mc_threshold = TripoConfig.MC_THRESHOLD
             
-        # Generate output path if not provided
+
         if output_path is None:
             import uuid
             output_path = str(OUTPUT_DIR / f"{uuid.uuid4()}.glb")
@@ -131,27 +193,27 @@ class TripoSRGenerator:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        print(f"🔮 Generating 3D model (resolution: {mc_resolution})...")
+        print(f"🔮 Generating 3D model (resolution: {mc_resolution}, threshold: {mc_threshold})...")
         
         with torch.inference_mode():
             # Run TripoSR inference
             try:
                 if self.use_local:
-                    # For local TripoSR
+              
                     scene_codes = self.model([image], device=DEVICE)
-                    
-                    # Extract mesh using marching cubes
+                
                     meshes = self.model.extract_mesh(
                         scene_codes,
-                        resolution=mc_resolution
+                        has_vertex_color=True,
+                        resolution=mc_resolution,
+                        threshold=mc_threshold
                     )
                     
-                    # Export to GLB
+            
                     mesh = meshes[0]
                     mesh.export(str(output_path))
                 else:
-                    # For HuggingFace version
-                    # Preprocess image
+                    
                     if image.mode != 'RGB':
                         image = image.convert('RGB')
                     
@@ -174,12 +236,12 @@ class TripoSRGenerator:
                 
                 # Fallback: Try alternative method
                 try:
-                    # Ensure image is properly formatted
+                 
                     if image.mode != 'RGB':
                         image = image.convert('RGB')
                     
                     # Try calling with different API
-                    result = self.model(image)
+                    result = self.model(image, device=DEVICE)
                     
                     if hasattr(result, 'export'):
                         result.export(str(output_path))
@@ -229,7 +291,7 @@ def image_to_3d(image: Image.Image, output_path: str = None) -> str:
 
 
 if __name__ == "__main__":
-    # Test generation
+  
     if len(sys.argv) > 1:
         img_path = sys.argv[1]
         output = sys.argv[2] if len(sys.argv) > 2 else "test_model.glb"

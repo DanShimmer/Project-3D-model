@@ -3,6 +3,7 @@ import multer from "multer";
 import { authMiddleware } from "../middleware/auth.middleware";
 import {
   textTo3D,
+  textTo3DBatch,
   imageTo3D,
   getJobStatus,
   checkAIHealth
@@ -34,6 +35,9 @@ router.use(authMiddleware);
 
 // Text to 3D
 router.post("/text-to-3d", textTo3D);
+
+// Text to 3D Batch (4 variants)
+router.post("/text-to-3d-batch", textTo3DBatch);
 
 // Image to 3D
 router.post("/image-to-3d", upload.single("image"), imageTo3D);

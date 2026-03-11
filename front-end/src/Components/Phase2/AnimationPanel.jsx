@@ -21,7 +21,7 @@ const ANIMATIONS = [
   {
     id: "agree",
     label: "Agree Gesture",
-    description: "Gật đầu đồng ý",
+    description: "Nodding head in agreement",
     icon: Hand,
     category: "gesture",
     duration: "1.5s"
@@ -29,7 +29,7 @@ const ANIMATIONS = [
   {
     id: "alert",
     label: "Alert",
-    description: "Tư thế cảnh giác",
+    description: "Cautious alert stance",
     icon: Zap,
     category: "idle",
     duration: "2.0s"
@@ -37,7 +37,7 @@ const ANIMATIONS = [
   {
     id: "dance",
     label: "Dance",
-    description: "Nhảy múa vui vẻ",
+    description: "Joyful dance moves",
     icon: Music,
     category: "action",
     duration: "4.0s"
@@ -45,7 +45,7 @@ const ANIMATIONS = [
   {
     id: "arise",
     label: "Arise",
-    description: "Đứng dậy từ ngồi/nằm",
+    description: "Stand up from sitting/lying",
     icon: User,
     category: "transition",
     duration: "2.5s"
@@ -53,7 +53,7 @@ const ANIMATIONS = [
   {
     id: "behit-flyup",
     label: "Be Hit Fly Up",
-    description: "Bị đánh bay lên",
+    description: "Knocked upward by impact",
     icon: Zap,
     category: "combat",
     duration: "1.8s"
@@ -61,7 +61,7 @@ const ANIMATIONS = [
   {
     id: "walk",
     label: "Walk",
-    description: "Đi bộ bình thường",
+    description: "Normal walking cycle",
     icon: Footprints,
     category: "locomotion",
     duration: "1.0s",
@@ -70,7 +70,7 @@ const ANIMATIONS = [
   {
     id: "dead",
     label: "Dead",
-    description: "Ngã xuống chết",
+    description: "Fall down death animation",
     icon: Skull,
     category: "combat",
     duration: "2.0s"
@@ -78,7 +78,7 @@ const ANIMATIONS = [
   {
     id: "run",
     label: "Run",
-    description: "Chạy nhanh",
+    description: "Fast running cycle",
     icon: Footprints,
     category: "locomotion",
     duration: "0.8s",
@@ -87,7 +87,7 @@ const ANIMATIONS = [
   {
     id: "attack",
     label: "Attack",
-    description: "Tấn công cơ bản",
+    description: "Basic melee attack",
     icon: Sword,
     category: "combat",
     duration: "1.2s"
@@ -102,6 +102,7 @@ const CATEGORIES = [
   { id: "locomotion", label: "Locomotion" },
   { id: "combat", label: "Combat" },
   { id: "action", label: "Action" },
+  { id: "transition", label: "Transition" },
 ];
 
 export default function AnimationPanel({
@@ -195,7 +196,7 @@ export default function AnimationPanel({
           <div className="flex items-center gap-2 p-3 bg-amber-900/30 border border-amber-500/30 rounded-lg">
             <User size={16} className="text-amber-400" />
             <p className="text-xs text-amber-400">
-              Vui lòng cấu hình Rig trước khi sử dụng Animation
+              Please configure Rig before using Animation
             </p>
           </div>
         </div>

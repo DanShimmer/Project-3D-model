@@ -139,6 +139,146 @@ class StableDiffusionGenerator:
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
         print("🗑️ Models unloaded")
+    
+    # --- Object type classification for prompt engineering ---
+    _CATEGORY_KEYWORDS = {
+        'character': [
+            'character', 'person', 'man', 'woman', 'girl', 'boy', 'knight',
+            'warrior', 'wizard', 'soldier', 'hero', 'villain', 'figure',
+            'chibi', 'anime', 'human', 'elf', 'dwarf', 'orc', 'pirate',
+            'ninja', 'samurai', 'princess', 'prince', 'king', 'queen',
+            'mage', 'archer', 'thief', 'assassin', 'monk', 'cleric',
+        ],
+        'creature': [
+            'dragon', 'monster', 'creature', 'beast', 'demon', 'wolf',
+            'cat', 'dog', 'fox', 'bear', 'lion', 'tiger', 'horse',
+            'bird', 'eagle', 'phoenix', 'dinosaur', 'snake', 'spider',
+            'fish', 'whale', 'shark', 'unicorn', 'griffin', 'hydra',
+            'slime', 'golem', 'elemental', 'pet', 'animal', 'bunny',
+            'rabbit', 'deer', 'frog', 'turtle', 'owl', 'bat',
+        ],
+        'vehicle': [
+            'car', 'truck', 'tank', 'ship', 'boat', 'airplane', 'plane',
+            'spaceship', 'spacecraft', 'helicopter', 'motorcycle', 'bike',
+            'train', 'bus', 'mech', 'robot', 'vehicle', 'wagon', 'cart',
+            'submarine', 'rocket', 'starfighter', 'hovercraft',
+        ],
+        'building': [
+            'house', 'castle', 'tower', 'building', 'temple', 'church',
+            'cathedral', 'fortress', 'cabin', 'hut', 'palace', 'mansion',
+            'skyscraper', 'bridge', 'wall', 'gate', 'dungeon', 'shrine',
+            'pyramid', 'lighthouse', 'windmill', 'barn',
+        ],
+        'weapon': [
+            'sword', 'axe', 'hammer', 'bow', 'staff', 'wand', 'shield',
+            'spear', 'dagger', 'knife', 'gun', 'rifle', 'pistol',
+            'blade', 'katana', 'mace', 'scythe', 'trident', 'crossbow',
+            'weapon', 'armor', 'helmet', 'gauntlet',
+        ],
+        'prop': [
+            'chest', 'barrel', 'crate', 'potion', 'bottle', 'lamp',
+            'lantern', 'torch', 'book', 'scroll', 'gem', 'crystal',
+            'coin', 'key', 'ring', 'crown', 'throne', 'table', 'chair',
+            'desk', 'bed', 'shelf', 'door', 'window', 'fence',
+            'tree', 'rock', 'stone', 'mushroom', 'flower', 'plant',
+            'food', 'cake', 'cup', 'mug', 'hat', 'shoe', 'bag',
+            'guitar', 'piano', 'drum', 'violin', 'trophy',
+        ],
+    }
+    
+    _CATEGORY_QUALITY = {
+        'character': (
+            "full body standing pose head to feet, "
+            "detailed face with eyes nose mouth, "
+            "solid thick proportions, collectible figurine"
+        ),
+        'creature': (
+            "full body powerful stance, "
+            "detailed face with eyes and teeth, "
+            "solid thick body, creature figurine"
+        ),
+        'vehicle': (
+            "complete vehicle all angles visible, "
+            "detailed panels wheels windows, "
+            "solid connected parts, die-cast model"
+        ),
+        'building': (
+            "complete solid architecture, "
+            "detailed walls windows roof, "
+            "architectural scale model"
+        ),
+        'weapon': (
+            "complete weapon fully visible, "
+            "detailed blade and handle, "
+            "solid chunky proportions, prop replica"
+        ),
+        'prop': (
+            "complete solid object, "
+            "detailed surface and textures, "
+            "clearly defined shape, miniature model"
+        ),
+    }
+
+    def _classify_object(self, prompt: str) -> str:
+        """Classify the user's prompt into an object category for targeted enhancement."""
+        prompt_lower = prompt.lower()
+        scores = {}
+        for cat, keywords in self._CATEGORY_KEYWORDS.items():
+            score = sum(1 for kw in keywords if kw in prompt_lower)
+            if score > 0:
+                scores[cat] = score
+        if scores:
+            return max(scores, key=scores.get)
+        return 'prop'  # default fallback
+
+    def _build_3d_prompt(self, user_prompt: str, mode: str = "fast") -> str:
+        """
+        Build an EXTREMELY detailed prompt optimized for TripoSR reconstruction.
+        
+        KEY INSIGHT: TripoSR needs images that look like RENDERS OF SOLID 3D OBJECTS.
+        The #1 cause of holes is ambiguous depth cues in the SD-generated image.
+        
+        What works best:
+        - STRONG directional lighting with clear shadows ON the object
+        - Three-quarter elevated view (TripoSR training data angle)
+        - SOLID, CHUNKY, THICK proportions (thin parts = holes)
+        - HIGH CONTRAST between light and shadow sides
+        - SMOOTH, SIMPLE surfaces (not overly detailed textures)
+        - Clean gray/white background for rembg
+        - Object looks like a CLAY/RESIN figure or game asset
+        """
+        user_prompt = user_prompt.strip().rstrip('.')
+        category = self._classify_object(user_prompt)
+        cat_quality = self._CATEGORY_QUALITY.get(category, self._CATEGORY_QUALITY['prop'])
+        
+        print(f"  🏷️ Object category: {category}")
+        
+        if mode == "quality":
+            # SDXL: 154 token limit — can be detailed
+            enhanced = (
+                f"a highly detailed 3D figurine of {user_prompt}, "
+                f"three-quarter view from slightly above, "
+                f"single object centered on plain gray background, "
+                f"strong directional lighting from upper left with clear shadows on the surface, "
+                f"solid thick proportions, no holes or gaps, complete figure, "
+                f"smooth clean surface like premium resin collectible, "
+                f"{cat_quality}, "
+                f"sharp focus, physically based rendering, octane render, 8K detail, "
+                f"professional product photography, game asset"
+            )
+        else:
+            # SD 1.5: 77 token limit — must be concise!
+            enhanced = (
+                f"3D figurine of {user_prompt}, "
+                f"three-quarter view from above, gray background, "
+                f"strong directional lighting, clear shadows, "
+                f"solid thick proportions, no holes, smooth surface, "
+                f"{cat_quality}, "
+                f"sharp focus, PBR render, product photo"
+            )
+        
+        print(f"  📝 Enhanced prompt: {enhanced[:180]}...")
+        return enhanced
         
     def generate(
         self,
@@ -159,8 +299,8 @@ class StableDiffusionGenerator:
         Returns:
             PIL Image
         """
-        # Enhance prompt for 3D conversion
-        enhanced_prompt = prompt + SDConfig.PROMPT_SUFFIX
+        # Enhance prompt for 3D conversion - wrap user prompt with 3D-optimized template
+        enhanced_prompt = self._build_3d_prompt(prompt, mode)
         neg_prompt = negative_prompt or SDConfig.NEGATIVE_PROMPT
         
         # Check VRAM before generation

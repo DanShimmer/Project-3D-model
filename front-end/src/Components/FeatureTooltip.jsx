@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -137,51 +138,55 @@ export default function FeatureTooltip({
         {children}
       </div>
 
-      <AnimatePresence>
-        {showTooltip && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
-            style={{
-              ...getTooltipStyle(),
-              transformOrigin: getTransformOrigin(),
-            }}
-            className="pointer-events-none"
-          >
-            {/* Tooltip content - Black bg, white text */}
-            <div className="bg-black/95 backdrop-blur-sm text-white rounded-xl shadow-2xl border border-white/10 p-4 max-w-xs">
-              {/* Arrow indicator */}
-              {position === "right" && (
-                <div className="absolute left-0 top-1/2 -translate-x-full -translate-y-1/2">
-                  <div className="border-8 border-transparent border-r-black/95" />
-                </div>
-              )}
-              {position === "left" && (
-                <div className="absolute right-0 top-1/2 translate-x-full -translate-y-1/2">
-                  <div className="border-8 border-transparent border-l-black/95" />
-                </div>
-              )}
-              
-              {/* Title */}
-              <h4 className="font-semibold text-sm mb-1.5 flex items-center gap-2">
-                {title}
-                {shortcut && (
-                  <kbd className="px-1.5 py-0.5 bg-white/10 rounded text-[10px] font-mono">
-                    {shortcut}
-                  </kbd>
+      {/* Portal tooltip to document.body so it escapes sidebar backdrop-blur stacking context */}
+      {createPortal(
+        <AnimatePresence>
+          {showTooltip && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.15 }}
+              style={{
+                ...getTooltipStyle(),
+                transformOrigin: getTransformOrigin(),
+              }}
+              className="pointer-events-none"
+            >
+              {/* Tooltip content - Solid black bg, white text */}
+              <div className="bg-black text-white rounded-xl shadow-2xl border border-white/10 p-4 max-w-xs">
+                {/* Arrow indicator */}
+                {position === "right" && (
+                  <div className="absolute left-0 top-1/2 -translate-x-full -translate-y-1/2">
+                    <div className="border-8 border-transparent border-r-black" />
+                  </div>
                 )}
-              </h4>
-              
-              {/* Description */}
-              <p className="text-xs text-gray-300 leading-relaxed">
-                {description}
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                {position === "left" && (
+                  <div className="absolute right-0 top-1/2 translate-x-full -translate-y-1/2">
+                    <div className="border-8 border-transparent border-l-black" />
+                  </div>
+                )}
+                
+                {/* Title */}
+                <h4 className="font-semibold text-sm mb-1.5 flex items-center gap-2">
+                  {title}
+                  {shortcut && (
+                    <kbd className="px-1.5 py-0.5 bg-white/10 rounded text-[10px] font-mono">
+                      {shortcut}
+                    </kbd>
+                  )}
+                </h4>
+                
+                {/* Description */}
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  {description}
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </>
   );
 }
@@ -190,58 +195,58 @@ export default function FeatureTooltip({
 export const FEATURE_DESCRIPTIONS = {
   generate: {
     title: "Generate",
-    description: "Tạo model 3D mới từ text hoặc hình ảnh. Nhập mô tả chi tiết để AI tạo ra model chất lượng cao.",
+    description: "Create a new 3D model from text or image. Provide a detailed description for high-quality AI generation.",
     shortcut: "Ctrl+G"
   },
   upload: {
     title: "Upload",
-    description: "Tải lên model 3D có sẵn (GLB, FBX, OBJ, STL, USDZ, BLEND). Hỗ trợ kéo thả file trực tiếp.",
+    description: "Upload an existing 3D model (GLB, FBX, OBJ, STL, USDZ, BLEND). Drag & drop supported.",
     shortcut: "Ctrl+U"
   },
   texture: {
     title: "Texture",
-    description: "Thêm texture cho model bằng AI hoặc tô màu thủ công. Hỗ trợ nhiều style: Realistic, Stylized, PBR, Hand-painted.",
+    description: "Add textures via AI or paint manually. Supports styles: Realistic, Stylized, PBR, Hand-painted.",
     shortcut: "T"
   },
   rig: {
     title: "Rig",
-    description: "Thêm skeleton (xương) cho model để có thể làm animation. Hỗ trợ Humanoid (người) và Quadruped (4 chân).",
+    description: "Add a skeleton to your model for animation. Supports Humanoid and Quadruped rigs.",
     shortcut: "R"
   },
   animate: {
     title: "Animation",
-    description: "Áp dụng animation có sẵn cho model đã rig. Bao gồm: Walk, Run, Jump, Attack, Dance và nhiều hơn nữa.",
+    description: "Apply preset animations to rigged models. Includes: Walk, Run, Jump, Attack, Dance and more.",
     shortcut: "A"
   },
   remesh: {
     title: "Remesh",
-    description: "Thay đổi cấu trúc mesh. Quad (hình vuông) tốt cho chỉnh sửa, Triangle (tam giác) tốt cho game engine.",
+    description: "Change mesh topology. Quad is better for editing, Triangle is optimized for game engines.",
     shortcut: "M"
   },
   share: {
     title: "Share",
-    description: "Chia sẻ model của bạn lên Showcase hoặc tạo link chia sẻ. Mọi người có thể xem và tải về model của bạn.",
+    description: "Share your model to the Showcase or generate a shareable link for others to view and download.",
     shortcut: "S"
   },
   download: {
     title: "Download",
-    description: "Tải model về máy với nhiều định dạng: GLB (web), FBX (game engines), OBJ (3D software), STL (3D printing).",
+    description: "Download your model in multiple formats: GLB (web), FBX (game engines), OBJ (3D software), STL (3D printing).",
     shortcut: "Ctrl+D"
   },
   polyva15: {
     title: "Polyva 1.5",
-    description: "Model AI nhanh sử dụng Stable Diffusion 1.5. Tốc độ ~30 giây, chất lượng tốt cho đa số use case.",
+    description: "Fast AI model using Stable Diffusion 1.5. ~30 seconds, good quality for most use cases.",
   },
   polyvaXL: {
     title: "Polyva XL",
-    description: "Model AI cao cấp sử dụng SDXL. Tốc độ ~60 giây nhưng chi tiết hơn, texture đẹp hơn, phù hợp cho production.",
+    description: "Premium AI model using SDXL. ~60 seconds but more detailed, better textures, production-ready.",
   },
   textTo3D: {
     title: "Text to 3D",
-    description: "Mô tả model bạn muốn bằng text và AI sẽ tạo ra 4 biến thể. Ví dụ: 'A cute robot with big eyes'",
+    description: "Describe your model in text and AI generates 4 variants. Example: 'A cute robot with big eyes'",
   },
   imageTo3D: {
     title: "Image to 3D",
-    description: "Tải lên hình ảnh 2D và AI sẽ chuyển đổi thành model 3D. Ảnh nền trắng/trong suốt cho kết quả tốt nhất.",
+    description: "Upload a 2D image and AI converts it to a 3D model. White/transparent backgrounds give best results.",
   }
 };

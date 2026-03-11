@@ -40,20 +40,20 @@ const CHARACTER_TYPES = [
   }
 ];
 
-// Rig markers for humanoid
+// Rig markers for humanoid - symmetric around x:50 centerline
 const HUMANOID_MARKERS = [
   { id: "chin", label: "Chin", color: "#06b6d4", position: { x: 50, y: 15 } },
-  { id: "shoulder-a", label: "Shoulder A", color: "#f59e0b", position: { x: 30, y: 25 } },
-  { id: "shoulder-b", label: "Shoulder B", color: "#f59e0b", position: { x: 70, y: 25 } },
-  { id: "elbow-a", label: "Elbow A", color: "#22c55e", position: { x: 22, y: 38 } },
-  { id: "elbow-b", label: "Elbow B", color: "#22c55e", position: { x: 78, y: 38 } },
-  { id: "wrist-a", label: "Wrist A", color: "#ec4899", position: { x: 18, y: 50 } },
-  { id: "wrist-b", label: "Wrist B", color: "#ec4899", position: { x: 82, y: 50 } },
-  { id: "groin", label: "Groin", color: "#6b7280", position: { x: 50, y: 52 } },
-  { id: "knee-a", label: "Knee A", color: "#f97316", position: { x: 40, y: 70 } },
-  { id: "knee-b", label: "Knee B", color: "#f97316", position: { x: 60, y: 70 } },
-  { id: "ankle-a", label: "Ankle A", color: "#a855f7", position: { x: 38, y: 88 } },
-  { id: "ankle-b", label: "Ankle B", color: "#a855f7", position: { x: 62, y: 88 } },
+  { id: "shoulder-a", label: "Shoulder A", color: "#f59e0b", position: { x: 32, y: 25 } },
+  { id: "shoulder-b", label: "Shoulder B", color: "#f59e0b", position: { x: 68, y: 25 } },
+  { id: "elbow-a", label: "Elbow A", color: "#22c55e", position: { x: 24, y: 40 } },
+  { id: "elbow-b", label: "Elbow B", color: "#22c55e", position: { x: 76, y: 40 } },
+  { id: "wrist-a", label: "Wrist A", color: "#ec4899", position: { x: 20, y: 52 } },
+  { id: "wrist-b", label: "Wrist B", color: "#ec4899", position: { x: 80, y: 52 } },
+  { id: "groin", label: "Groin", color: "#6b7280", position: { x: 50, y: 55 } },
+  { id: "knee-a", label: "Knee A", color: "#f97316", position: { x: 40, y: 72 } },
+  { id: "knee-b", label: "Knee B", color: "#f97316", position: { x: 60, y: 72 } },
+  { id: "ankle-a", label: "Ankle A", color: "#a855f7", position: { x: 40, y: 90 } },
+  { id: "ankle-b", label: "Ankle B", color: "#a855f7", position: { x: 60, y: 90 } },
 ];
 
 // Rig markers for quadruped

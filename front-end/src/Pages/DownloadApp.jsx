@@ -24,6 +24,7 @@ import { useTheme } from "../contexts/ThemeContext";
 // App version and download info
 const APP_VERSION = "1.0.0";
 const RELEASE_DATE = "2026-01-09";
+const GITHUB_RELEASE_URL = `https://github.com/DanShimmer/Project-3D-model/releases/download/v${APP_VERSION}`;
 
 const PLATFORMS = [
   {
@@ -178,24 +179,42 @@ export default function DownloadPage() {
     }
   }[theme];
 
-  const handleDownload = (platform, downloadType) => {
+  const handleDownload = async (platform, downloadType) => {
     const platformData = PLATFORMS.find(p => p.id === platform);
     const download = platformData?.downloads.find(d => d.type === downloadType);
     
-    if (download) {
-      // Download from local backend server (served from front-end/release/)
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const backendBase = API_BASE.replace('/api', '');
-      const downloadUrl = `${backendBase}/downloads/${download.filename}`;
-      
-      // Direct download via hidden link
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = download.filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    if (!download) return;
+
+    // Try backend first (local files in front-end/release/)
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const backendBase = API_BASE.replace('/api', '');
+    const backendUrl = `${backendBase}/downloads/${download.filename}`;
+
+    try {
+      const res = await fetch(backendUrl, { method: 'HEAD' });
+      if (res.ok) {
+        // File exists on backend → download from there
+        triggerDownload(backendUrl, download.filename);
+        return;
+      }
+    } catch {
+      // Backend unreachable, fall through
     }
+
+    // Fallback → GitHub Releases
+    const githubUrl = `${GITHUB_RELEASE_URL}/${download.filename}`;
+    triggerDownload(githubUrl, download.filename);
+  };
+
+  const triggerDownload = (url, filename) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const selectedPlatformData = PLATFORMS.find(p => p.id === selectedPlatform);

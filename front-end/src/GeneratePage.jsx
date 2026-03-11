@@ -44,7 +44,7 @@ import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
 import AvatarModal, { getAvatarById } from "./Components/AvatarModal";
 import { LogoIcon } from "./Components/Logo";
 import FeatureTooltip, { FEATURE_DESCRIPTIONS } from "./Components/FeatureTooltip";
-import { genTextTo3D, genImageTo3D, checkAIHealth, updateModelType, updateModelVariant } from "./api/generate";
+import { genTextTo3D, genTextTo3DBatch, genImageTo3D, checkAIHealth, updateModelType, updateModelVariant } from "./api/generate";
 import { updateProfile } from "./api/auth";
 import { useAuth } from "./contexts/AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
@@ -208,6 +208,9 @@ export default function GeneratePage() {
   // GPU enabled status
   const [gpuEnabled, setGpuEnabled] = useState(false);
   
+  // Global processing flag — disable ALL controls when ANY operation is running
+  const isAnyProcessing = isGenerating || isTexturing || isRigging || isRemeshing;
+  
   // Avatar functions
   const handleAvatarChange = async (newAvatar) => {
     const token = getToken();
@@ -274,6 +277,7 @@ export default function GeneratePage() {
       
       
       if (model.modelUrl || model.prompt) {
+        const hasRealModel = model.modelUrl && model.modelUrl.startsWith('http');
         const loadedModel = {
           id: model._id,
           modelUrl: model.modelUrl,
@@ -281,7 +285,7 @@ export default function GeneratePage() {
           name: model.name,
           prompt: model.prompt,
           modelType: modelType,
-          isDemo: true,
+          isDemo: !hasRealModel,
           isExisting: true,
           variant: savedVariant
         };
@@ -328,17 +332,23 @@ export default function GeneratePage() {
     const checkPhase2 = async () => {
       try {
         const result = await checkPhase2Health();
-        setPhase2Available(result.status === "healthy" || result.phase2_enabled);
-        // Check GPU status
-        if (result.gpu?.available && result.gpu?.features_enabled) {
-          setGpuEnabled(true);
-          console.log("✅ Phase 2 GPU features enabled:", result.gpu.gpu_name);
-        } else if (result.phase2_enabled && !result.demo_mode) {
-          setGpuEnabled(true);
-          console.log("✅ Phase 2 features enabled (GPU mode)");
+        if (result.ok) {
+          setPhase2Available(true);
+          // Check GPU status from real AI service response
+          if (result.gpu?.available && result.gpu?.features_enabled) {
+            setGpuEnabled(true);
+            console.log("✅ Phase 2 GPU features enabled:", result.gpu.gpu_name);
+          } else if (result.phase2_enabled) {
+            setGpuEnabled(true);
+            console.log("✅ Phase 2 features enabled");
+          } else {
+            setGpuEnabled(false);
+            console.log("ℹ️ Phase 2 available but GPU features disabled");
+          }
         } else {
+          setPhase2Available(false);
           setGpuEnabled(false);
-          console.log("ℹ️ Phase 2 running in demo mode");
+          console.warn("Phase 2 health check returned not ok:", result.error);
         }
       } catch (err) {
         console.warn("Phase 2 health check failed:", err);
@@ -519,43 +529,30 @@ export default function GeneratePage() {
   
  
   const generateModelVariants = (baseModel, isImageMode = false) => {
-    let modelType = "robot"; 
+    // Check if we have a real AI-generated model with a URL
+    const hasRealModel = baseModel?.modelUrl && baseModel.modelUrl.startsWith('http');
     
+    let modelType = "robot"; 
     
     if (isImageMode && uploadedFile) {
       const fileName = uploadedFile.name.toLowerCase();
-      
       if (fileName.includes("sword") || fileName.includes("blade")) modelType = "sword";
       else if (fileName.includes("cat") || fileName.includes("kitten")) modelType = "cat";
       else if (fileName.includes("car") || fileName.includes("vehicle")) modelType = "car";
       else if (fileName.includes("robot") || fileName.includes("bot")) modelType = "robot";
-      else {
-        
-        const demoTypes = ["robot", "sword", "car", "cat"];
-        modelType = demoTypes[Math.floor(Math.random() * demoTypes.length)];
-      }
+      else modelType = "robot";
     } else {
-      
       const promptLower = prompt.toLowerCase();
-      
-      for (const [key, type] of Object.entries(DEMO_MODEL_TYPES)) {
-        if (promptLower.includes(type) || key.toLowerCase().includes(promptLower.split(" ")[0])) {
-          modelType = type;
-          break;
-        }
-      }
-      
-      
-      if (promptLower.includes("sword") || promptLower.includes("kiếm") || promptLower.includes("blade")) modelType = "sword";
-      else if (promptLower.includes("cat") || promptLower.includes("mèo") || promptLower.includes("kitten")) modelType = "cat";
-      else if (promptLower.includes("car") || promptLower.includes("xe") || promptLower.includes("oto") || promptLower.includes("vehicle")) modelType = "car";
+      if (promptLower.includes("sword") || promptLower.includes("blade")) modelType = "sword";
+      else if (promptLower.includes("cat") || promptLower.includes("kitten")) modelType = "cat";
+      else if (promptLower.includes("car") || promptLower.includes("vehicle")) modelType = "car";
       else if (promptLower.includes("robot") || promptLower.includes("bot") || promptLower.includes("droid")) modelType = "robot";
     }
     
-    
     const dbId = baseModel?._id;
     
-    
+    // If we have a real model URL from AI service, mark isDemo=false
+    // so ModelViewer renders the actual .glb instead of DemoModelPreview
     const variants = [
       { 
         ...baseModel, 
@@ -564,37 +561,37 @@ export default function GeneratePage() {
         variant: 1, 
         selected: false,
         modelType: modelType,
-        isDemo: true,
+        isDemo: !hasRealModel,
         name: `${prompt} - Variant 1`
       },
       { 
         ...baseModel, 
         id: `${baseModel?._id || Date.now()}-2`,
-        dbId: dbId, // Original database ID
+        dbId: dbId,
         variant: 2, 
         selected: false,
         modelType: modelType,
-        isDemo: true,
+        isDemo: !hasRealModel,
         name: `${prompt} - Variant 2`
       },
       { 
         ...baseModel, 
         id: `${baseModel?._id || Date.now()}-3`,
-        dbId: dbId, // Original database ID
+        dbId: dbId,
         variant: 3, 
         selected: false,
         modelType: modelType,
-        isDemo: true,
+        isDemo: !hasRealModel,
         name: `${prompt} - Variant 3`
       },
       { 
         ...baseModel, 
         id: `${baseModel?._id || Date.now()}-4`,
-        dbId: dbId, // Original database ID
+        dbId: dbId,
         variant: 4, 
         selected: false,
         modelType: modelType,
-        isDemo: true,
+        isDemo: !hasRealModel,
         name: `${prompt} - Variant 4`
       }
     ];
@@ -618,17 +615,18 @@ export default function GeneratePage() {
           throw new Error("Please enter a description for your 3D model");
         }
         
-        setGenerationStep("Generating image from text...");
-        setProgress(10);
+        setGenerationStep("Generating 4 variants...");
+        setProgress(5);
         
         const progressInterval = setInterval(() => {
           setProgress(prev => {
-            if (prev < 90) return prev + Math.random() * 10;
+            if (prev < 90) return prev + Math.random() * 5;
             return prev;
           });
-        }, 2000);
+        }, 3000);
         
-        const result = await genTextTo3D(prompt, qualityMode);
+        // Use batch endpoint to generate 4 real variants with different seeds
+        const result = await genTextTo3DBatch(prompt, qualityMode, 4);
         clearInterval(progressInterval);
         
         if (!result.ok) {
@@ -638,15 +636,34 @@ export default function GeneratePage() {
         setProgress(100);
         setGenerationStep("Complete!");
         
-        // Generate 4 variants (text mode = false)
-        const variants = generateModelVariants(result.model, false);
+        // Build variants from batch result - each has a DIFFERENT model URL
+        const variants = (result.variants || []).map((v, index) => ({
+          id: `${result.modelId || Date.now()}-${index + 1}`,
+          dbId: result.modelId,
+          variant: v.variant || index + 1,
+          selected: false,
+          modelType: "generated",
+          isDemo: false,
+          modelUrl: v.modelUrl,
+          thumbnailUrl: v.imageUrl,
+          seed: v.seed,
+          name: `${prompt} - Variant ${v.variant || index + 1}`
+        }));
+        
+        // Fallback: if batch failed or returned 0 variants, try single generation
+        if (variants.length === 0) {
+          const singleResult = await genTextTo3D(prompt, qualityMode);
+          if (singleResult.ok && singleResult.model) {
+            const fallbackVariants = generateModelVariants(singleResult.model, false);
+            setGeneratedModels(fallbackVariants);
+            setSelectedGeneratedModel(fallbackVariants[0]);
+            return;
+          }
+          throw new Error("No variants were generated");
+        }
+        
         setGeneratedModels(variants);
         setSelectedGeneratedModel(variants[0]);
-        
-        // Update modelType and variant in database (default to variant 1)
-        if (result.model?._id && variants[0]?.modelType) {
-          await updateModelVariant(result.model._id, variants[0].modelType, 1);
-        }
         
       } else {
         if (!uploadedFile) {
@@ -673,14 +690,30 @@ export default function GeneratePage() {
         setProgress(100);
         setGenerationStep("Complete!");
         
-        // Generate 4 variants - pass true for image mode
-        const variants = generateModelVariants(result.model, true);
+        // For image-to-3d, we get 1 real model - show it as the primary variant
+        // and indicate other slots are for the same model
+        const baseModel = result.model;
+        const hasRealModel = baseModel?.modelUrl && baseModel.modelUrl.startsWith('http');
+        
+        const variants = [
+          { 
+            ...baseModel, 
+            id: `${baseModel?._id || Date.now()}-1`,
+            dbId: baseModel?._id, 
+            variant: 1, 
+            selected: false,
+            modelType: "generated",
+            isDemo: !hasRealModel,
+            name: `Image to 3D - Variant 1`
+          }
+        ];
+        
         setGeneratedModels(variants);
         setSelectedGeneratedModel(variants[0]);
         
-        // Update modelType and variant in database (default to variant 1)
-        if (result.model?._id && variants[0]?.modelType) {
-          await updateModelVariant(result.model._id, variants[0].modelType, 1);
+        // Update modelType and variant in database
+        if (baseModel?._id) {
+          await updateModelVariant(baseModel._id, "generated", 1);
         }
       }
       
@@ -1005,33 +1038,55 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
   };
 
   // Handle Texturing
-  const handleApplyTexture = async () => {
+  const handleApplyTexture = async (options = {}) => {
     if (!selectedGeneratedModel) return;
     
-    setIsTexturing(true);
-    try {
-      // Focus on selected variant
-      setFocusedVariant(selectedGeneratedModel);
-      
-      // Get model path
-      const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
-      
-      // Call Phase 2 API for texturing with correct parameters
-      const result = await applyTexture(modelPath, texturePrompt, textureStyle);
-      
-      if (result.success || result.ok) {
-        setIsTextured(true);
-        // Update model path if new textured model is returned
-        if (result.textured_model_path || result.texturedModelPath) {
-          console.log("Textured model:", result.textured_model_path || result.texturedModelPath);
+    const { mode, textureStyle: optStyle, aiOptions } = options;
+    
+    // If AI texture mode, call the AI service
+    if (mode === "ai") {
+      setIsTexturing(true);
+      try {
+        // Focus on selected variant
+        setFocusedVariant(selectedGeneratedModel);
+        
+        // Get model path
+        const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+        
+        // Call Phase 2 API for AI texturing
+        const result = await applyTexture(modelPath, texturePrompt, optStyle || textureStyle, aiOptions);
+        
+        if (result.success || result.ok) {
+          setIsTextured(true);
+          
+          // Update model URL if new textured model is returned
+          if (result.texturedModelPath) {
+            const aiBaseUrl = import.meta.env.VITE_AI_URL || "http://localhost:8000";
+            const texturedUrl = `${aiBaseUrl}${result.texturedModelPath}`;
+            console.log("Textured model URL:", texturedUrl);
+            
+            // Update the model with the new textured URL
+            setSelectedGeneratedModel(prev => ({
+              ...prev,
+              modelUrl: texturedUrl
+            }));
+            setFocusedVariant(prev => ({
+              ...prev,
+              modelUrl: texturedUrl
+            }));
+          }
+        } else {
+          throw new Error(result.error || "AI Texturing failed");
         }
-      } else {
-        throw new Error(result.error || "Texturing failed");
+      } catch (err) {
+        setError("Error during AI texturing: " + err.message);
+        console.error("AI Texturing error:", err);
+      } finally {
+        setIsTexturing(false);
       }
-    } catch (err) {
-      setError("Error during texturing: " + err.message);
-    } finally {
-      setIsTexturing(false);
+    } else {
+      // Manual paint mode — just mark as textured (painting is done in real-time on the model)
+      setIsTextured(true);
     }
   };
 
@@ -1039,7 +1094,6 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
     setIsTextured(false);
     setIsPBREnabled(false);
     setBrightness(100);
-    await handleApplyTexture();
   };
 
   const handleTogglePBR = async () => {
@@ -1325,7 +1379,8 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
         <aside className={`w-16 ${currentTheme.navBg} backdrop-blur-xl border-r ${currentTheme.border} flex flex-col items-center py-4 gap-2 transition-colors duration-500`}>
           {SIDEBAR_TOOLS.map(tool => {
             const featureInfo = FEATURE_DESCRIPTIONS[tool.id];
-            const isDisabled = (tool.requiresModel && !selectedGeneratedModel) || 
+            const isDisabled = isAnyProcessing || 
+                               (tool.requiresModel && !selectedGeneratedModel) || 
                                (tool.requiresRig && !isRigConfigured);
             
             return (
@@ -1335,8 +1390,8 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                 description={
                   isDisabled
                     ? tool.requiresRig 
-                      ? "Cần cấu hình Rig trước khi sử dụng tính năng này"
-                      : "Cần tạo hoặc upload model trước"
+                      ? "Rig configuration required before using this feature"
+                      : "Generate or upload a model first"
                     : featureInfo?.description || `${tool.label} feature`
                 }
                 shortcut={featureInfo?.shortcut}
@@ -1396,7 +1451,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
             </div>
 
             {/* AI Model Selector */}
-            <div className={`p-4 border-b ${currentTheme.border}`}>
+            <div className={`p-4 border-b ${currentTheme.border} ${isAnyProcessing ? 'opacity-50 pointer-events-none' : ''}`}>
               <label className={`text-xs font-medium ${currentTheme.textMuted} uppercase mb-3 block`}>AI Model</label>
               <div className="grid grid-cols-2 gap-2">
                 {AI_MODELS.map(model => (
@@ -1422,7 +1477,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
             </div>
             
             {/* Input Area */}
-            <div className="flex-1 p-4">
+            <div className={`flex-1 p-4 ${isAnyProcessing ? 'opacity-50 pointer-events-none' : ''}`}>
               <AnimatePresence mode="wait">
                 {activeMode === "text-to-3d" ? (
                   <motion.div
@@ -1574,14 +1629,14 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
             <div className={`p-4 border-t ${currentTheme.border} flex gap-2`}>
               <button
                 onClick={handleClear}
-                disabled={isGenerating}
+                disabled={isAnyProcessing}
                 className={`px-4 py-3 rounded-xl border ${currentTheme.border} ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:border-white/20' : 'hover:border-black/20'} transition-all disabled:opacity-50`}
               >
                 <X size={18} />
               </button>
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !aiHealthy || (activeMode === "text-to-3d" ? !prompt.trim() : !uploadedFile)}
+                disabled={isAnyProcessing || !aiHealthy || (activeMode === "text-to-3d" ? !prompt.trim() : !uploadedFile)}
                 className={`flex-1 py-3 px-4 rounded-xl bg-gradient-to-r ${currentTheme.accentGradient} text-white font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all ${theme === 'dark' ? 'shadow-lg shadow-lime-500/20' : 'shadow-lg shadow-cyan-500/20'}`}
               >
                 {isGenerating ? (
@@ -1601,6 +1656,18 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
           
           {/* Right Panel - Preview & Results */}
           <div className={`flex-1 flex flex-col bg-[#0a0a0a] overflow-hidden transition-colors duration-500`}>
+            {/* Processing overlay banner */}
+            {isAnyProcessing && (
+              <div className="absolute top-16 left-0 right-0 z-50 flex justify-center pointer-events-none">
+                <div className="bg-amber-900/90 backdrop-blur-sm text-amber-200 px-4 py-2 rounded-b-lg flex items-center gap-2 shadow-lg">
+                  <Loader2 className="animate-spin" size={16} />
+                  <span className="text-sm font-medium">
+                    {isGenerating ? "Generating model..." : isTexturing ? "Applying texture..." : isRigging ? "Configuring rig..." : "Remeshing..."}
+                  </span>
+                  <span className="text-xs text-amber-300/70">All controls disabled</span>
+                </div>
+              </div>
+            )}
             {/* Model Preview Header */}
             <div className={`p-4 border-b ${currentTheme.border} flex items-center justify-between`}>
               <div className="flex items-center gap-3">
@@ -1642,7 +1709,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                   {/* Remesh */}
                   <button
                     onClick={() => setShowRemeshModal(true)}
-                    disabled={!selectedGeneratedModel || selectedGeneratedModel?.isUploaded}
+                    disabled={isAnyProcessing || !selectedGeneratedModel || selectedGeneratedModel?.isUploaded}
                     title="Remesh"
                     className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
                   >
@@ -1650,7 +1717,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                   </button>
                   <button
                     onClick={handleRetry}
-                    disabled={isGenerating || selectedGeneratedModel?.isUploaded}
+                    disabled={isAnyProcessing || selectedGeneratedModel?.isUploaded}
                     title="Retry with AI"
                     className={`p-2 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg ${currentTheme.textSecondary} hover:${currentTheme.text} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all disabled:opacity-50`}
                   >
@@ -1658,7 +1725,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                   </button>
                   <button
                     onClick={handleShare}
-                    disabled={!selectedGeneratedModel}
+                    disabled={isAnyProcessing || !selectedGeneratedModel}
                     title="Share"
                     className={`p-2 ${currentTheme.accentBg} rounded-lg text-white ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} transition-all disabled:opacity-50`}
                   >
@@ -1709,18 +1776,31 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                         )}
                       </div>
                       
-                      {/* Large model preview */}
-                      <DemoModelPreview
-                        modelType={focusedVariant.modelType || "robot"}
-                        variant={focusedVariant.variant || 1}
-                        className="w-full h-full min-h-[400px]"
-                        autoRotate={!isAnimationPlaying}
-                        wireframe={isWireframeEnabled}
-                        brightness={brightness}
-                      />
+                      {/* Large model preview - use real ModelViewer for generated models with URL */}
+                      {focusedVariant.modelUrl && !focusedVariant.isDemo ? (
+                        <ModelViewer
+                          modelUrl={focusedVariant.modelUrl}
+                          className="w-full h-full min-h-[400px]"
+                          autoRotate={!isAnimationPlaying && !isPaintMode}
+                          showControls={false}
+                          isPaintMode={isPaintMode}
+                          paintColor={selectedPaintColor}
+                          brushSize={brushSize}
+                          onPaint={handlePaintModel}
+                          wireframe={isWireframeEnabled}
+                          brightness={brightness}
+                        />
+                      ) : (
+                        <DemoModelPreview
+                          modelType={focusedVariant.modelType || "robot"}
+                          variant={focusedVariant.variant || 1}
+                          className="w-full h-full min-h-[400px]"
+                          autoRotate={!isAnimationPlaying}
+                        />
+                      )}
                       
-                      {/* Focused variant controls */}
-                      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2">
+                      {/* Focused variant controls - positioned higher to avoid overlap */}
+                      <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 flex items-center gap-2 z-10">
                         {/* Download with format selection */}
                         <div className="relative" ref={downloadButtonRef}>
                           <button
@@ -1746,7 +1826,8 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                         {/* Remesh button */}
                         <button
                           onClick={() => setShowRemeshModal(true)}
-                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all flex items-center gap-2`}
+                          disabled={isAnyProcessing}
+                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all disabled:opacity-50 flex items-center gap-2`}
                           title="Remesh"
                         >
                           <Grid3X3 size={20} />
@@ -1756,17 +1837,18 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                         {/* Retry */}
                         <button
                           onClick={handleRetry}
-                          disabled={isGenerating}
+                          disabled={isAnyProcessing}
                           className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all disabled:opacity-50`}
                           title="Retry"
                         >
-                          <RefreshCw size={20} className={isGenerating ? "animate-spin" : ""} />
+                          <RefreshCw size={20} className={isAnyProcessing ? "animate-spin" : ""} />
                         </button>
                         
                         {/* Save */}
                         <button
                           onClick={handleSaveToStorage}
-                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all`}
+                          disabled={isAnyProcessing}
+                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all disabled:opacity-50`}
                           title="Save to Storage"
                         >
                           <Save size={20} />
@@ -1775,7 +1857,8 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                         {/* Share */}
                         <button
                           onClick={handleShare}
-                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all`}
+                          disabled={isAnyProcessing}
+                          className={`p-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-xl ${currentTheme.textSecondary} hover:${currentTheme.text} transition-all disabled:opacity-50`}
                           title="Share"
                         >
                           <Share2 size={20} />
@@ -1783,29 +1866,38 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                       </div>
                     </motion.div>
                   ) : (
-                    /* 4-grid model view */
-                    <div className="grid grid-cols-2 gap-1 p-1 min-h-0">
+                    /* 4-grid model view (or single view for 1 variant) */
+                    <div className={`grid ${generatedModels.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-3 p-2 min-h-0`}>
                       {generatedModels.map((model, index) => (
                         <motion.div
                           key={model.id}
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ delay: index * 0.1 }}
-                          onClick={() => handleSelectVariant(model)}
-                          onDoubleClick={() => handleDoubleClickVariant(model)}
-                          className={`relative ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden cursor-pointer transition-all ${
+                          onClick={() => !isAnyProcessing && handleSelectVariant(model)}
+                          onDoubleClick={() => !isAnyProcessing && handleDoubleClickVariant(model)}
+                          className={`relative ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden ${isAnyProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'} transition-all ${
                             selectedGeneratedModel?.id === model.id
                               ? `ring-2 ${theme === 'dark' ? 'ring-lime-500' : 'ring-cyan-500'}`
                               : `hover:ring-1 ${theme === 'dark' ? 'hover:ring-white/20' : 'hover:ring-black/10'}`
                           }`}
                         >
-                          {/* Demo 3D Model Viewer */}
-                          <DemoModelPreview
-                            modelType={model.modelType || "robot"}
-                            variant={model.variant || 1}
-                            className="w-full h-full min-h-[180px]"
-                            autoRotate={true}
-                          />
+                          {/* 3D Model Viewer - use real viewer for generated models */}
+                          {model.modelUrl && !model.isDemo ? (
+                            <ModelViewer
+                              modelUrl={model.modelUrl}
+                              className="w-full h-full min-h-[220px]"
+                              autoRotate={true}
+                              showControls={false}
+                            />
+                          ) : (
+                            <DemoModelPreview
+                              modelType={model.modelType || "robot"}
+                              variant={model.variant || 1}
+                              className="w-full h-full min-h-[220px]"
+                              autoRotate={true}
+                            />
+                          )}
                         
                         {/* Variant label */}
                         <div className="absolute top-3 left-3">
@@ -2000,8 +2092,8 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
               )}
             </div>
             
-            {/* Model info footer */}
-            {selectedGeneratedModel && (
+            {/* Model info footer - hidden in focused mode to prevent overlap */}
+            {selectedGeneratedModel && !focusedVariant && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}

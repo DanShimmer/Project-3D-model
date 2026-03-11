@@ -44,20 +44,41 @@ class TexturingConfig:
     CONTROLNET_NORMAL = "lllyasviel/sd-controlnet-normal"
     
     # Generation settings
-    TEXTURE_SIZE = 1024  # Texture resolution
-    GUIDANCE_SCALE = 7.5
-    NUM_INFERENCE_STEPS = 30
+    TEXTURE_SIZE = 2048  # Higher resolution texture for more detail (was 1024)
+    GUIDANCE_SCALE = 9.0  # Stronger prompt adherence for detailed textures (was 7.5)
+    NUM_INFERENCE_STEPS = 40  # More steps for better quality (was 30)
     
-    # Style prompts
+    # Style prompts - much more detailed for higher quality
     STYLE_PROMPTS = {
-        "realistic": "highly detailed realistic texture, photorealistic, 8k, high resolution, detailed surface",
-        "stylized": "stylized texture, vibrant colors, artistic, game asset style, clean edges",
-        "pbr": "PBR texture, physically based rendering, albedo map, detailed material, game ready",
-        "hand-painted": "hand-painted texture, painterly style, brush strokes, world of warcraft style, stylized game art"
+        "realistic": (
+            "ultra detailed realistic texture map, photorealistic surface material, "
+            "8k high resolution, intricate surface detail, pores and micro-textures, "
+            "natural color variation, physically accurate material, studio quality"
+        ),
+        "stylized": (
+            "beautiful stylized game texture, vibrant rich colors, artistic hand-crafted feel, "
+            "AAA game asset quality, clean crisp details, stylized PBR, "
+            "Riot Games art style, professional game art"
+        ),
+        "pbr": (
+            "professional PBR texture map, physically based rendering material, "
+            "detailed albedo with natural color variation, game-ready texture, "
+            "Substance Painter quality, consistent lighting, Unreal Engine quality"
+        ),
+        "hand-painted": (
+            "masterful hand-painted texture, beautiful brush strokes with visible detail, "
+            "World of Warcraft art style, vibrant saturated colors, painterly game art, "
+            "professional stylized game texture, Blizzard quality hand-painted"
+        )
     }
     
-    # Negative prompts
-    NEGATIVE_PROMPT = "blurry, low quality, pixelated, noisy, watermark, text, signature, tiled, repeating pattern"
+    # Negative prompts - more comprehensive
+    NEGATIVE_PROMPT = (
+        "blurry, low quality, pixelated, noisy, watermark, text, signature, "
+        "tiled, repeating pattern, seams, stretching, distorted, "
+        "flat color, solid color, no detail, boring, plain, "
+        "jpeg artifacts, compression artifacts, low resolution"
+    )
 
 
 class AITexturingService:
@@ -279,10 +300,9 @@ class AITexturingService:
             # Load models if not loaded
             if not self.loaded:
                 if not self.load_models():
-                    return {
-                        "success": False,
-                        "error": "Failed to load AI models"
-                    }
+                    # Fall back to procedural texture if AI models can't load
+                    print("⚠️ AI models unavailable, falling back to procedural texture...")
+                    return self._generate_procedural_texture(model_path, style, job_id)
             
             import trimesh
             from PIL import Image
@@ -309,6 +329,15 @@ class AITexturingService:
             if isinstance(mesh, trimesh.Scene):
                 mesh = mesh.dump(concatenate=True)
             
+            # Check if mesh already has vertex colors from TripoSR
+            has_vertex_colors = (
+                hasattr(mesh.visual, 'vertex_colors') and 
+                mesh.visual.vertex_colors is not None and
+                len(mesh.visual.vertex_colors) > 0
+            )
+            if has_vertex_colors:
+                print(f"   ✓ Mesh has {len(mesh.visual.vertex_colors)} vertex colors from TripoSR")
+            
             # Step 2: Generate UV coordinates if missing
             print("🗺️ Step 2: Checking UV coordinates...")
             if not hasattr(mesh.visual, 'uv') or mesh.visual.uv is None:
@@ -318,12 +347,17 @@ class AITexturingService:
             
             # Step 3: Render depth/normal views
             print("📷 Step 3: Rendering model views...")
-            views = self.render_model_views(model_path, num_views=4)
+            views = None
+            try:
+                views = self.render_model_views(model_path, num_views=4)
+            except Exception as render_err:
+                print(f"   ⚠️ View rendering failed: {render_err}")
+                views = None
             
             if views is None:
-                # Fallback: create a simple procedural texture
-                print("   ⚠️ Falling back to procedural texture...")
-                return self._generate_procedural_texture(model_path, style, job_id)
+                # Fallback: Generate texture directly using SD + ControlNet with a simple depth image
+                print("   Using direct AI texture generation (no view rendering)...")
+                return self._generate_ai_texture_direct(mesh, model_path, full_prompt, style, job_id, start_time)
             
             # Step 4: Generate textures for each view
             print("🎨 Step 4: Generating AI textures...")
@@ -399,6 +433,125 @@ class AITexturingService:
                 "error": str(e)
             }
     
+    def _generate_ai_texture_direct(self, mesh, model_path, prompt, style, job_id, start_time):
+        """
+        Generate texture directly using SD + ControlNet without pyrender.
+        Creates a synthetic depth map from mesh geometry and uses it for ControlNet.
+        """
+        try:
+            import trimesh
+            from PIL import Image
+            
+            print("🎨 Direct AI texture generation...")
+            
+            # Step 1: Generate a synthetic depth map from mesh vertices
+            print("   Creating synthetic depth map...")
+            depth_image = self._create_synthetic_depth(mesh)
+            
+            # Step 2: Generate texture using ControlNet
+            print("   Generating AI texture...")
+            if self.pipe and self.loaded:
+                depth_resized = depth_image.resize((512, 512))
+                
+                result = self.pipe(
+                    prompt=prompt,
+                    negative_prompt=TexturingConfig.NEGATIVE_PROMPT,
+                    image=depth_resized,
+                    num_inference_steps=TexturingConfig.NUM_INFERENCE_STEPS,
+                    guidance_scale=TexturingConfig.GUIDANCE_SCALE,
+                ).images[0]
+                
+                # Upscale to target size
+                final_texture = result.resize(
+                    (TexturingConfig.TEXTURE_SIZE, TexturingConfig.TEXTURE_SIZE), 
+                    Image.LANCZOS
+                )
+            else:
+                # If pipeline not available, use procedural
+                return self._generate_procedural_texture(model_path, style, job_id)
+            
+            # Step 3: Generate UV coordinates if missing
+            if not hasattr(mesh.visual, 'uv') or mesh.visual.uv is None:
+                print("   Generating UV coordinates...")
+                mesh = self._generate_uv_box_projection(mesh)
+            
+            # Step 4: Apply texture and save
+            print("   Applying texture to mesh...")
+            texture_path = str(OUTPUT_DIR / f"{job_id}_texture.png")
+            final_texture.save(texture_path)
+            
+            mesh.visual = trimesh.visual.TextureVisuals(
+                uv=mesh.visual.uv if hasattr(mesh.visual, 'uv') else None,
+                image=final_texture
+            )
+            
+            output_path = str(OUTPUT_DIR / f"{job_id}_textured.glb")
+            mesh.export(output_path)
+            
+            elapsed = time.time() - start_time
+            print(f"\n✅ Direct AI texturing complete in {elapsed:.1f}s")
+            
+            return {
+                "success": True,
+                "textured_model_path": output_path,
+                "texture_path": texture_path,
+                "style": style,
+                "elapsed_time": elapsed
+            }
+            
+        except Exception as e:
+            print(f"❌ Direct AI texture error: {e}")
+            traceback.print_exc()
+            # Fall back to procedural
+            return self._generate_procedural_texture(model_path, style, job_id)
+    
+    def _create_synthetic_depth(self, mesh, resolution=512):
+        """Create a synthetic depth map from mesh geometry for ControlNet input"""
+        from PIL import Image
+        
+        try:
+            # Project vertices onto a 2D plane (front view)
+            vertices = mesh.vertices.copy()
+            
+            # Normalize to 0-1 range
+            vmin = vertices.min(axis=0)
+            vmax = vertices.max(axis=0)
+            extent = vmax - vmin
+            extent[extent == 0] = 1.0
+            
+            vertices_norm = (vertices - vmin) / extent
+            
+            # Create depth image
+            depth = np.ones((resolution, resolution), dtype=np.float32)
+            
+            # Project each vertex (front view: X, Y -> pixel, Z -> depth)
+            for v in vertices_norm:
+                px = int(v[0] * (resolution - 1))
+                py = int((1 - v[1]) * (resolution - 1))  # Flip Y
+                pz = v[2]
+                
+                px = max(0, min(resolution - 1, px))
+                py = max(0, min(resolution - 1, py))
+                
+                # Keep closest depth
+                if pz < depth[py, px]:
+                    depth[py, px] = pz
+            
+            # Fill holes using simple dilation
+            from PIL import ImageFilter
+            
+            depth_img = Image.fromarray((depth * 255).astype(np.uint8), mode='L')
+            depth_img = depth_img.filter(ImageFilter.MedianFilter(size=3))
+            depth_img = depth_img.filter(ImageFilter.GaussianBlur(radius=2))
+            
+            return depth_img.convert('RGB')
+            
+        except Exception as e:
+            print(f"   Synthetic depth error: {e}")
+            # Return a simple gray gradient as fallback
+            gradient = np.linspace(200, 50, resolution).reshape(-1, 1).repeat(resolution, axis=1)
+            return Image.fromarray(gradient.astype(np.uint8), mode='L').convert('RGB')
+    
     def _generate_uv_box_projection(self, mesh):
         """Generate UV coordinates using box projection"""
         try:
@@ -452,8 +605,8 @@ class AITexturingService:
         return best_texture['image']
     
     def _generate_procedural_texture(self, model_path: str, style: str, job_id: str):
-        """Fallback procedural texture generation"""
-        from PIL import Image, ImageDraw
+        """Enhanced procedural texture generation with gradient, noise, and AO-like effects"""
+        from PIL import Image, ImageDraw, ImageFilter
         import trimesh
         
         try:
@@ -462,29 +615,59 @@ class AITexturingService:
             if isinstance(mesh, trimesh.Scene):
                 mesh = mesh.dump(concatenate=True)
             
-            # Create base texture
+            # Create base texture with more sophisticated approach
             size = TexturingConfig.TEXTURE_SIZE
             
-            # Style-based colors
-            style_colors = {
-                "realistic": (180, 160, 140),  # Neutral brown/gray
-                "stylized": (100, 180, 220),   # Vibrant blue
-                "pbr": (150, 150, 150),        # Gray for PBR
-                "hand-painted": (200, 180, 160) # Warm tone
+            # Style-based color palettes (primary, secondary, accent)
+            style_palettes = {
+                "realistic": [(180, 160, 140), (160, 140, 120), (200, 180, 160)],
+                "stylized": [(100, 180, 220), (80, 150, 200), (130, 210, 240)],
+                "pbr": [(160, 160, 160), (140, 140, 140), (180, 180, 180)],
+                "hand-painted": [(200, 170, 140), (180, 150, 120), (220, 190, 160)]
             }
             
-            base_color = style_colors.get(style, (200, 200, 200))
+            palette = style_palettes.get(style, style_palettes["realistic"])
+            base_color = palette[0]
+            
+            # Create gradient base
             texture = Image.new('RGB', (size, size), base_color)
             draw = ImageDraw.Draw(texture)
             
-            # Add some noise/variation
+            # Add smooth gradient variation
             np.random.seed(42)
-            for _ in range(5000):
+            for y in range(size):
+                for x in range(0, size, 4):  # Step by 4 for performance
+                    # Gradient factor based on position
+                    gx = x / size
+                    gy = y / size
+                    grad_factor = 0.8 + 0.4 * (np.sin(gx * 3.14) * np.cos(gy * 3.14))
+                    
+                    # Blend between palette colors
+                    c = tuple(int(base_color[i] * grad_factor) for i in range(3))
+                    c = tuple(max(0, min(255, v)) for v in c)
+                    draw.rectangle([x, y, x+3, y], fill=c)
+            
+            # Add fine noise for texture detail
+            noise_texture = Image.new('RGB', (size, size))
+            noise_draw = ImageDraw.Draw(noise_texture)
+            for _ in range(size * 10):
                 x = np.random.randint(0, size)
                 y = np.random.randint(0, size)
-                variation = np.random.randint(-30, 30)
-                color = tuple(max(0, min(255, c + variation)) for c in base_color)
-                draw.point((x, y), fill=color)
+                variation = np.random.randint(-20, 20)
+                color = tuple(max(0, min(255, base_color[i] + variation)) for i in range(3))
+                noise_draw.rectangle([x, y, x+1, y+1], fill=color)
+            
+            # Blend noise with base
+            from PIL import ImageChops
+            texture = ImageChops.add(texture, noise_texture, scale=2, offset=0)
+            
+            # Apply slight blur for smoothness
+            texture = texture.filter(ImageFilter.GaussianBlur(radius=1))
+            
+            # Boost sharpness for detail
+            from PIL import ImageEnhance
+            enhancer = ImageEnhance.Sharpness(texture)
+            texture = enhancer.enhance(1.3)
             
             # Save texture
             texture_path = str(OUTPUT_DIR / f"{job_id}_texture.png")

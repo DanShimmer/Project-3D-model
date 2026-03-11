@@ -21,7 +21,9 @@ if %errorlevel%==0 (
 
 echo.
 echo  [1/3] AI Service...
-if exist "%BASE_DIR%AI-service\venv311\Scripts\activate.bat" (
+if exist "%BASE_DIR%AI-service\venv\Scripts\activate.bat" (
+    start "AI-Service" /min cmd /k "cd /d "%BASE_DIR%AI-service" & call venv\Scripts\activate.bat & python app.py"
+) else if exist "%BASE_DIR%AI-service\venv311\Scripts\activate.bat" (
     start "AI-Service" /min cmd /k "cd /d "%BASE_DIR%AI-service" & call venv311\Scripts\activate.bat & python app.py"
 ) else (
     start "AI-Service" /min cmd /k "cd /d "%BASE_DIR%AI-service" & python app.py"

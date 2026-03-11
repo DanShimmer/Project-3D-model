@@ -6,6 +6,7 @@ import os
 import sys
 import uuid
 import time
+import random
 import traceback
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file
@@ -27,7 +28,7 @@ from config import (
 from preprocessing import preprocess_image
 from stable_diffusion import text_to_image
 from triposr_wrapper import image_to_3d
-from postprocessing import postprocess_mesh
+from postprocessing import postprocess_mesh, render_mesh_thumbnail
 
 # Import Phase 2 services
 try:
@@ -120,6 +121,9 @@ def text_to_3d_endpoint():
         prompt = data['prompt'].strip()
         mode = data.get('mode', 'fast')
         job_id = data.get('jobId', str(uuid.uuid4()))
+        seed = data.get('seed', None)  # Optional seed for reproducible generation
+        if seed is not None:
+            seed = int(seed)
         
         if not prompt:
             return jsonify({'ok': False, 'error': 'Prompt cannot be empty'}), 400
@@ -131,6 +135,7 @@ def text_to_3d_endpoint():
         print(f"📝 Text-to-3D Job: {job_id}")
         print(f"   Prompt: {prompt[:100]}...")
         print(f"   Mode: {mode}")
+        print(f"   Seed: {seed or 'random'}")
         print(f"{'='*60}\n")
         
         start_time = time.time()
@@ -147,7 +152,7 @@ def text_to_3d_endpoint():
         jobs[job_id]['step'] = 'text-to-image'
         jobs[job_id]['progress'] = 10
         
-        generated_image = text_to_image(prompt, mode)
+        generated_image = text_to_image(prompt, mode, seed=seed)
         
         # Save preview image
         preview_path = OUTPUT_DIR / f"{job_id}_preview.png"
@@ -164,7 +169,8 @@ def text_to_3d_endpoint():
             generated_image,
             remove_bg=True,
             normalize=True,
-            target_size=min(target_size, 512)  # TripoSR works best at 512
+            target_size=min(target_size, 512),  # TripoSR works best at 512
+            foreground_ratio=0.85  # TripoSR default, well-tested
         )
         
         # Save preprocessed image
@@ -193,6 +199,16 @@ def text_to_3d_endpoint():
         except:
             pass
         
+        # Step 5: Render 3D thumbnail (so My Storage shows actual 3D model, not SD image)
+        print("\n📸 Step 5: Rendering 3D thumbnail")
+        jobs[job_id]['step'] = 'rendering-thumbnail'
+        jobs[job_id]['progress'] = 95
+        
+        thumbnail_path = str(OUTPUT_DIR / f"{job_id}_thumb3d.png")
+        thumb_result = render_mesh_thumbnail(final_model_path, thumbnail_path)
+        # Use 3D thumbnail if available, otherwise fall back to SD preview
+        thumbnail_url = f"/outputs/{job_id}_thumb3d.png" if thumb_result else f"/outputs/{job_id}_preview.png"
+        
         # Done
         elapsed = time.time() - start_time
         jobs[job_id]['status'] = 'completed'
@@ -205,7 +221,7 @@ def text_to_3d_endpoint():
             'ok': True,
             'jobId': job_id,
             'modelPath': f"/outputs/{job_id}.glb",
-            'imageUrl': f"/outputs/{job_id}_preview.png",
+            'imageUrl': thumbnail_url,
             'elapsed': elapsed
         })
         
@@ -277,7 +293,8 @@ def image_to_3d_endpoint():
             image,
             remove_bg=True,
             normalize=True,
-            target_size=512
+            target_size=512,
+            foreground_ratio=0.85  # TripoSR default, well-tested
         )
         
         # Save preprocessed
@@ -306,6 +323,15 @@ def image_to_3d_endpoint():
         except:
             pass
         
+        # Render 3D thumbnail
+        print("\n📸 Rendering 3D thumbnail")
+        jobs[job_id]['step'] = 'rendering-thumbnail'
+        jobs[job_id]['progress'] = 90
+        
+        thumbnail_path = str(OUTPUT_DIR / f"{job_id}_thumb3d.png")
+        thumb_result = render_mesh_thumbnail(final_model_path, thumbnail_path)
+        thumbnail_url = f"/outputs/{job_id}_thumb3d.png" if thumb_result else f"/outputs/{job_id}_preprocessed.png"
+        
         # Done
         elapsed = time.time() - start_time
         jobs[job_id]['status'] = 'completed'
@@ -318,6 +344,7 @@ def image_to_3d_endpoint():
             'ok': True,
             'jobId': job_id,
             'modelPath': f"/outputs/{job_id}.glb",
+            'imageUrl': thumbnail_url,
             'preprocessedImage': f"/outputs/{job_id}_preprocessed.png",
             'elapsed': elapsed
         })
@@ -336,6 +363,163 @@ def get_job_status(job_id):
     if job_id not in jobs:
         return jsonify({'ok': False, 'error': 'Job not found'}), 404
     return jsonify({'ok': True, **jobs[job_id]})
+
+
+@app.route('/api/text-to-3d-batch', methods=['POST'])
+def text_to_3d_batch_endpoint():
+    """
+    Generate multiple 3D model variants from text prompt.
+    Each variant uses a different random seed for the SD image generation,
+    producing different 3D models from the same prompt.
+    
+    Request JSON:
+    {
+        "prompt": "a dragon with a hat",
+        "mode": "fast" | "quality",
+        "num_variants": 4,
+        "jobId": "xxx"
+    }
+    
+    Response:
+    {
+        "ok": true,
+        "variants": [
+            {
+                "modelPath": "/outputs/xxx_v0.glb",
+                "imageUrl": "/outputs/xxx_v0_preview.png",
+                "seed": 12345,
+                "variant": 1
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'prompt' not in data:
+            return jsonify({'ok': False, 'error': 'Prompt is required'}), 400
+        
+        prompt = data['prompt'].strip()
+        mode = data.get('mode', 'fast')
+        num_variants = min(int(data.get('num_variants', 4)), 4)  # Max 4 variants
+        job_id = data.get('jobId', str(uuid.uuid4()))
+        
+        if not prompt:
+            return jsonify({'ok': False, 'error': 'Prompt cannot be empty'}), 400
+        
+        print(f"\n{'='*60}")
+        print(f"📝 Text-to-3D BATCH Job: {job_id}")
+        print(f"   Prompt: {prompt[:100]}...")
+        print(f"   Mode: {mode}")
+        print(f"   Variants: {num_variants}")
+        print(f"{'='*60}\n")
+        
+        start_time = time.time()
+        
+        # Track job
+        jobs[job_id] = {
+            'status': 'processing',
+            'step': 'generating-images',
+            'progress': 0,
+            'variants_completed': 0,
+            'total_variants': num_variants
+        }
+        
+        # Step 1: Generate N images with different seeds
+        print(f"🎨 Step 1: Generating {num_variants} images with different seeds...")
+        seeds = [random.randint(0, 2**31 - 1) for _ in range(num_variants)]
+        generated_images = []
+        
+        for i, seed in enumerate(seeds):
+            print(f"\n  → Image {i+1}/{num_variants} (seed: {seed})")
+            jobs[job_id]['progress'] = int(5 + (i / num_variants) * 30)
+            
+            img = text_to_image(prompt, mode, seed=seed)
+            
+            # Save preview
+            preview_path = OUTPUT_DIR / f"{job_id}_v{i}_preview.png"
+            img.save(preview_path)
+            
+            generated_images.append((img, seed))
+        
+        # Unload SD models to free VRAM for TripoSR
+        print("\n🗑️ Unloading SD models to free VRAM for TripoSR...")
+        from stable_diffusion import sd_generator
+        sd_generator.unload_models()
+        
+        # Step 2: Preprocess and convert each image to 3D
+        print(f"\n🔮 Step 2: Converting {num_variants} images to 3D...")
+        variants = []
+        
+        target_size = SDConfig.SD15_RESOLUTION if mode == 'fast' else SDConfig.SDXL_RESOLUTION
+        
+        for i, (img, seed) in enumerate(generated_images):
+            print(f"\n  → Model {i+1}/{num_variants}")
+            jobs[job_id]['step'] = f'processing-variant-{i+1}'
+            jobs[job_id]['progress'] = int(35 + (i / num_variants) * 55)
+            jobs[job_id]['variants_completed'] = i
+            
+            # Preprocess
+            preprocessed = preprocess_image(
+                img,
+                remove_bg=True,
+                normalize=True,
+                target_size=min(target_size, 512),
+                foreground_ratio=0.85
+            )
+            
+            # Save preprocessed
+            preprocessed_path = OUTPUT_DIR / f"{job_id}_v{i}_preprocessed.png"
+            preprocessed.save(preprocessed_path)
+            
+            # TripoSR
+            raw_model_path = str(OUTPUT_DIR / f"{job_id}_v{i}_raw.glb")
+            image_to_3d(preprocessed, raw_model_path)
+            
+            # Post-process
+            final_model_path = str(OUTPUT_DIR / f"{job_id}_v{i}.glb")
+            postprocess_mesh(raw_model_path, final_model_path)
+            
+            # Cleanup raw
+            try:
+                os.remove(raw_model_path)
+            except:
+                pass
+            
+            # Render 3D thumbnail
+            thumb_path = str(OUTPUT_DIR / f"{job_id}_v{i}_thumb3d.png")
+            thumb_ok = render_mesh_thumbnail(final_model_path, thumb_path)
+            thumb_url = f"/outputs/{job_id}_v{i}_thumb3d.png" if thumb_ok else f"/outputs/{job_id}_v{i}_preview.png"
+            
+            variants.append({
+                'modelPath': f"/outputs/{job_id}_v{i}.glb",
+                'imageUrl': thumb_url,
+                'seed': seed,
+                'variant': i + 1
+            })
+        
+        # Done
+        elapsed = time.time() - start_time
+        jobs[job_id]['status'] = 'completed'
+        jobs[job_id]['progress'] = 100
+        jobs[job_id]['variants_completed'] = num_variants
+        
+        print(f"\n✅ Batch job completed in {elapsed:.1f}s ({num_variants} variants)")
+        
+        return jsonify({
+            'ok': True,
+            'jobId': job_id,
+            'variants': variants,
+            'elapsed': elapsed
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        if 'job_id' in locals() and job_id in jobs:
+            jobs[job_id]['status'] = 'failed'
+            jobs[job_id]['error'] = str(e)
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/outputs/<path:filename>', methods=['GET'])

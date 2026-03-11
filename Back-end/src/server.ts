@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth";
 import adminRoutes from "./routes/admin";
 import modelRoutes from "./routes/model";
 import generateRoutes from "./routes/generate";
+import phase2Routes from "./routes/phase2";
 import { initializeAdmin } from "./controllers/admin.controller";
 import { MongoMemoryServer } from "mongodb-memory-server";
 
@@ -21,7 +22,10 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 const releasePath = path.resolve(__dirname, "../../front-end/release");
 app.use("/downloads", express.static(releasePath, {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.exe')) {
+    // Force download for all installer/app files
+    const ext = path.extname(filePath).toLowerCase();
+    const downloadExts = ['.exe', '.dmg', '.zip', '.appimage', '.deb', '.rpm', '.msi'];
+    if (downloadExts.includes(ext)) {
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${path.basename(filePath)}"`);
     }
@@ -33,6 +37,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/models", modelRoutes);
 app.use("/api/generate", generateRoutes);
+app.use("/api/phase2", phase2Routes);
 
 async function startServer() {
   let mongoUri = process.env.MONGO_URI || "";
@@ -58,7 +63,7 @@ async function startServer() {
   
   const PORT = Number(process.env.PORT) || 5000;
   
-  // Initialize admin account
+  
   await initializeAdmin();
   
   app.listen(PORT, () => {
@@ -67,7 +72,8 @@ async function startServer() {
     console.log(`   - Auth:     /api/auth`);
     console.log(`   - Admin:    /api/admin`);
     console.log(`   - Models:   /api/models`);
-    console.log(`   - Generate: /api/generate\n`);
+    console.log(`   - Generate: /api/generate`);
+    console.log(`   - Phase 2:  /api/phase2\n`);
   });
 }
 

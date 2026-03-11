@@ -23,6 +23,44 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 phase2_jobs = {}
 
 
+def resolve_model_path(model_path: str) -> str:
+    """
+    Resolve model path from various formats to an absolute local file path.
+    
+    The frontend may send:
+    1. Full URL: 'http://localhost:8000/outputs/xxx/v0.glb'
+    2. Relative /outputs/ path: '/outputs/xxx/v0.glb'  
+    3. Just filename: 'xxx/v0.glb'
+    4. Already absolute: 'C:\\...\\outputs\\xxx\\v0.glb'
+    
+    All must resolve to a real file on disk.
+    """
+    if not model_path:
+        return model_path
+    
+    original = model_path
+    
+    # Step 1: Strip full URL prefix (http://host:port)
+    # Handle both http and https, any host/port
+    import re
+    url_match = re.match(r'https?://[^/]+(/.+)', model_path)
+    if url_match:
+        model_path = url_match.group(1)  # Extract just the path part
+    
+    # Step 2: Strip /outputs/ prefix and resolve to OUTPUT_DIR
+    if model_path.startswith('/outputs/'):
+        model_path = str(OUTPUT_DIR / model_path[len('/outputs/'):])
+    elif model_path.startswith('outputs/'):
+        model_path = str(OUTPUT_DIR / model_path[len('outputs/'):])
+    elif not os.path.isabs(model_path):
+        model_path = str(OUTPUT_DIR / model_path)
+    
+    if original != model_path:
+        print(f"  📂 Path resolved: {original[:80]}... → {model_path}")
+    
+    return model_path
+
+
 # ============================================
 # CONFIGURATION - Set based on your GPU
 # ============================================
@@ -519,18 +557,65 @@ def apply_texture():
         model_path = data.get('modelPath')
         prompt = data.get('prompt')
         style = data.get('style', 'realistic')
+        ai_options = data.get('aiOptions', ['auto-color'])
         
         if not model_path:
             return jsonify({"ok": False, "error": "Model path required"}), 400
         
+        # Resolve model path - handle URLs, relative paths, etc.
+        model_path = resolve_model_path(model_path)
+        
+        # Verify model file exists
+        if not os.path.exists(model_path):
+            return jsonify({"ok": False, "error": f"Model file not found: {model_path}"}), 404
+        
         job_id = str(uuid.uuid4())
         phase2_jobs[job_id] = {"status": "processing", "type": "texture"}
         
-        result = texturing_service.generate_texture(model_path, prompt, style)
+        print(f"\n🎨 Texture Job: {job_id}")
+        print(f"   Model: {model_path}")
+        print(f"   Style: {style}")
+        print(f"   AI Options: {ai_options}")
+        print(f"   Prompt: {prompt}")
+        
+        # Build enhanced prompt from AI options
+        option_prompts = []
+        if 'auto-color' in ai_options:
+            option_prompts.append("vivid accurate colors matching the object shape and identity, natural color variation")
+        if 'shadows' in ai_options:
+            option_prompts.append("ambient occlusion, realistic soft shadows, depth shading, subsurface scattering")
+        if 'depth' in ai_options:
+            option_prompts.append("volumetric surface detail, depth variation, 3D surface depth, parallax detail")
+        if 'detail' in ai_options:
+            option_prompts.append("ultra fine surface details, micro-textures, material imperfections, pores, scratches")
+        
+        enhanced_prompt = ", ".join(option_prompts)
+        if prompt:
+            enhanced_prompt = f"{prompt}, {enhanced_prompt}"
+        if not enhanced_prompt:
+            enhanced_prompt = "high quality detailed texture"
+        
+        result = texturing_service.generate_texture(model_path, enhanced_prompt, style)
         
         if result.get("success"):
             phase2_jobs[job_id]["status"] = "completed"
-            return jsonify({"ok": True, "jobId": job_id, **result})
+            
+            # Return URLs relative to the outputs directory
+            response_data = {"ok": True, "jobId": job_id, "success": True}
+            
+            if result.get("textured_model_path"):
+                textured_filename = os.path.basename(result["textured_model_path"])
+                response_data["texturedModelPath"] = f"/outputs/{textured_filename}"
+                response_data["textured_model_path"] = result["textured_model_path"]
+            
+            if result.get("texture_path"):
+                texture_filename = os.path.basename(result["texture_path"])
+                response_data["texturePath"] = f"/outputs/{texture_filename}"
+            
+            response_data["style"] = style
+            response_data["aiOptions"] = ai_options
+            
+            return jsonify(response_data)
         else:
             phase2_jobs[job_id]["status"] = "failed"
             return jsonify({"ok": False, **result}), 500
@@ -546,6 +631,10 @@ def generate_pbr():
     try:
         data = request.get_json()
         model_path = data.get('modelPath')
+        
+        # Resolve model path - handle URLs, relative paths, etc.
+        if model_path:
+            model_path = resolve_model_path(model_path)
         
         result = texturing_service.generate_pbr_maps(model_path)
         
@@ -565,6 +654,9 @@ def apply_rig():
         
         if not model_path:
             return jsonify({"ok": False, "error": "Model path required"}), 400
+        
+        # Resolve model path - handle URLs, relative paths, etc.
+        model_path = resolve_model_path(model_path)
         
         if character_type not in ['humanoid', 'quadruped']:
             return jsonify({"ok": False, "error": "Invalid character type"}), 400
@@ -606,6 +698,9 @@ def apply_animation():
         if not model_path or not animation_id:
             return jsonify({"ok": False, "error": "Model path and animation ID required"}), 400
         
+        # Resolve model path - handle URLs, relative paths, etc.
+        model_path = resolve_model_path(model_path)
+        
         job_id = str(uuid.uuid4())
         phase2_jobs[job_id] = {"status": "processing", "type": "animate"}
         
@@ -634,6 +729,9 @@ def remesh_model():
         
         if not model_path:
             return jsonify({"ok": False, "error": "Model path required"}), 400
+        
+        # Resolve model path - handle URLs, relative paths, etc.
+        model_path = resolve_model_path(model_path)
         
         if topology not in ['triangle', 'quad']:
             return jsonify({"ok": False, "error": "Invalid topology. Use 'triangle' or 'quad'"}), 400
@@ -678,6 +776,9 @@ def export_model():
         
         if not model_path:
             return jsonify({"ok": False, "error": "Model path required"}), 400
+        
+        # Resolve model path - handle URLs, relative paths, etc.
+        model_path = resolve_model_path(model_path)
         
         print(f"\n📦 Export Job:")
         print(f"   Model: {model_path}")
