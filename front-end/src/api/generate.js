@@ -48,41 +48,143 @@ export async function genTextTo3D(prompt, mode = "fast", seed = undefined) {
 }
 
 /**
- * Text -> 3D Batch Generation (4 variants)
+ * Text -> 3D Batch Generation (4 variants) — ASYNC with polling
+ * Submits job, then polls for progress. Calls onProgress callback with status updates.
+ * 
  * @param {string} prompt - Text description of the 3D model
  * @param {string} mode - "fast" (SD 1.5) or "quality" (SDXL) 
  * @param {number} numVariants - Number of variants to generate (1-4)
+ * @param {object} options - { onProgress: (status) => void, pollInterval: ms, abortSignal }
+ * @returns {Promise<object>} Final result with all variants
  */
-export async function genTextTo3DBatch(prompt, mode = "fast", numVariants = 4) {
-  try {
-    // 30 minute timeout for batch generation
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1800000);
+export async function genTextTo3DBatch(prompt, mode = "fast", numVariants = 4, options = {}) {
+  const { onProgress, pollInterval = 3000, abortSignal } = options;
 
-    const res = await fetch(`${API_BASE}/generate/text-to-3d-batch`, {
+  try {
+    // Step 1: Submit batch job (returns immediately with jobId)
+    const submitRes = await fetch(`${API_BASE}/generate/text-to-3d-batch`, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json", 
         ...authHeaders() 
       },
       body: JSON.stringify({ prompt, mode, num_variants: numVariants }),
-      signal: controller.signal,
+      signal: abortSignal,
     });
     
-    clearTimeout(timeoutId);
-    const data = await res.json();
+    const submitData = await submitRes.json();
     
-    if (!res.ok) {
-      return { ok: false, msg: data.msg || "Batch generation failed" };
+    if (!submitRes.ok || !submitData.ok) {
+      return { ok: false, msg: submitData.msg || "Failed to start batch generation" };
     }
-    
-    return data;
+
+    const jobId = submitData.jobId;
+    console.log(`🚀 Batch job started: ${jobId}`);
+
+    // Notify initial status
+    if (onProgress) {
+      onProgress({
+        status: 'processing',
+        progress: 0,
+        step: 'Starting batch generation...',
+        variants_completed: 0,
+        total_variants: submitData.total_variants || numVariants,
+        variants: []
+      });
+    }
+
+    // Step 2: Poll for status until completed or failed
+    return await new Promise((resolve, reject) => {
+      let lastVariantsCompleted = 0;
+      
+      const poll = async () => {
+        try {
+          // Check if aborted
+          if (abortSignal?.aborted) {
+            resolve({ ok: false, msg: "Generation cancelled by user" });
+            return;
+          }
+
+          const statusRes = await fetch(`${API_BASE}/generate/batch-status/${jobId}`, {
+            headers: { ...authHeaders() },
+            signal: abortSignal,
+          });
+          
+          const status = await statusRes.json();
+          
+          if (!status.ok) {
+            resolve({ ok: false, msg: status.msg || "Status check failed" });
+            return;
+          }
+
+          // Notify progress
+          if (onProgress) {
+            onProgress(status);
+          }
+
+          // Log new variants as they complete
+          if (status.variants_completed > lastVariantsCompleted) {
+            console.log(`✅ Variant ${status.variants_completed}/${status.total_variants} completed`);
+            lastVariantsCompleted = status.variants_completed;
+          }
+
+          if (status.status === 'completed') {
+            console.log(`🎉 Batch job ${jobId} completed with ${status.variants?.length || 0} variants`);
+            resolve({
+              ok: true,
+              jobId,
+              modelId: status.modelId,
+              variants: status.variants || [],
+              elapsed: status.elapsed
+            });
+            return;
+          }
+
+          if (status.status === 'failed') {
+            resolve({ ok: false, msg: status.error || "Batch generation failed" });
+            return;
+          }
+
+          // Continue polling
+          setTimeout(poll, pollInterval);
+
+        } catch (err) {
+          if (err.name === 'AbortError') {
+            resolve({ ok: false, msg: "Generation cancelled by user" });
+          } else {
+            console.error("Polling error:", err);
+            // Retry on transient errors
+            setTimeout(poll, pollInterval * 2);
+          }
+        }
+      };
+
+      // Start polling
+      setTimeout(poll, pollInterval);
+    });
+
   } catch (error) {
     console.error("Text-to-3D Batch error:", error);
     if (error.name === "AbortError") {
-      return { ok: false, msg: "Batch generation timed out. Please try again with fewer variants." };
+      return { ok: false, msg: "Generation cancelled by user" };
     }
     return { ok: false, msg: error.message || "Network error" };
+  }
+}
+
+/**
+ * Get batch job status (for external polling)
+ * @param {string} jobId - Job ID to check
+ */
+export async function getBatchStatus(jobId) {
+  try {
+    const res = await fetch(`${API_BASE}/generate/batch-status/${jobId}`, {
+      headers: { ...authHeaders() },
+    });
+    return res.json();
+  } catch (error) {
+    console.error("Get batch status error:", error);
+    return { ok: false, msg: error.message };
   }
 }
 
@@ -193,5 +295,46 @@ export async function updateModelVariant(modelId, modelType, variant) {
   } catch (error) {
     console.error("Update model variant error:", error);
     return { ok: false, msg: error.message };
+  }
+}
+
+/**
+ * Apply Hunyuan3D-Paint texture to a selected shape-only model
+ * @param {string} modelPath - AI-service relative path (e.g. "/outputs/xxx_v0.glb")
+ * @param {string} [preprocessedImage] - Optional preprocessed image path for texture guidance
+ * @returns {Promise<{ok: boolean, texturedModelUrl?: string, elapsed?: number, msg?: string}>}
+ */
+export async function applyModelTexture(modelPath, preprocessedImage = null) {
+  try {
+    const body = { modelPath };
+    if (preprocessedImage) body.preprocessedImage = preprocessedImage;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 min timeout
+    
+    const res = await fetch(`${API_BASE}/generate/apply-texture`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json", 
+        ...authHeaders() 
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    const data = await res.json();
+    
+    if (!res.ok) {
+      return { ok: false, msg: data.msg || "Texture application failed" };
+    }
+    
+    return data;
+  } catch (error) {
+    console.error("Apply texture error:", error);
+    if (error.name === "AbortError") {
+      return { ok: false, msg: "Texture generation timed out." };
+    }
+    return { ok: false, msg: error.message || "Network error" };
   }
 }

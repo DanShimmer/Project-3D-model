@@ -1,6 +1,22 @@
 """
 TripoSR Image-to-3D Generator
 Uses the TripoSR model from StabilityAI for single-image 3D reconstruction
+Official repo: https://github.com/VAST-AI-Research/TripoSR
+
+NOTE: Raw mesh is saved in TripoSR's native Z-up coordinate system.
+Orientation fix (Z-up → Y-up) is applied in postprocessing.py by directly
+swapping vertex coordinates — this is more reliable than apply_transform
+which can be lost during GLB export/import round-trips.
+
+Key pipeline settings (OFFICIAL DEFAULTS — proven on YouTube demos):
+- MC Resolution: 256 (official default, clean meshes)
+- Density Threshold: 25 (official default, prevents blob geometry)
+- Bake Texture: True (proper UV-mapped texture atlas vs vertex colors)
+- Texture Resolution: 2048 (texture atlas pixel resolution)
+
+LESSON LEARNED: Previous settings (MC 512, threshold 10) caused issues:
+- Threshold 10 extracted noise as geometry → blob models
+- Aggressive postprocessing then destroyed what little detail remained
 
 Optimized for RTX 3060 12GB
 """
@@ -11,6 +27,8 @@ from pathlib import Path
 import sys
 import os
 import gc
+import trimesh
+import trimesh.transformations
 
 
 # Resolve TripoSR path relative to THIS file, not CWD
@@ -157,16 +175,25 @@ class TripoSRGenerator:
         image: Image.Image,
         output_path: str = None,
         mc_resolution: int = None,
-        mc_threshold: float = None
+        mc_threshold: float = None,
+        bake_texture: bool = None,
+        texture_resolution: int = None
     ) -> str:
         """
-        Generate 3D mesh from image
+        Generate 3D mesh from image using TripoSR.
+        
+        Follows the official VAST-AI-Research/TripoSR pipeline:
+        1. Run model inference → scene_codes
+        2. Extract mesh via marching cubes (resolution, threshold)
+        3. Optionally bake UV-mapped texture atlas (much better than vertex colors)
         
         Args:
             image: Preprocessed PIL Image (should have gray background)
             output_path: Where to save the .glb file
-            mc_resolution: Marching cubes resolution (higher = more detail)
-            mc_threshold: Isosurface threshold (lower = more solid, fewer holes)
+            mc_resolution: Marching cubes grid resolution (default 512)
+            mc_threshold: Density threshold for surface extraction (default 10.0)
+            bake_texture: Whether to bake UV-mapped texture (default from config)
+            texture_resolution: Texture atlas resolution in pixels (default 2048)
             
         Returns:
             Path to the generated .glb file
@@ -184,6 +211,12 @@ class TripoSRGenerator:
         
         if mc_threshold is None:
             mc_threshold = TripoConfig.MC_THRESHOLD
+        
+        if bake_texture is None:
+            bake_texture = TripoConfig.BAKE_TEXTURE
+        
+        if texture_resolution is None:
+            texture_resolution = TripoConfig.TEXTURE_RESOLUTION
             
 
         if output_path is None:
@@ -193,73 +226,218 @@ class TripoSRGenerator:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        print(f"🔮 Generating 3D model (resolution: {mc_resolution}, threshold: {mc_threshold})...")
+        # Log image info for debugging
+        print(f"🔮 Generating 3D model...")
+        print(f"  Image size: {image.size}, mode: {image.mode}")
+        print(f"  MC resolution: {mc_resolution}, threshold: {mc_threshold}")
+        print(f"  Bake texture: {bake_texture}, texture res: {texture_resolution}")
+        
+        # Verify image has actual content (not blank)
+        img_array = np.array(image)
+        img_std = img_array.std()
+        print(f"  Image std deviation: {img_std:.2f} (should be >10 for good content)")
+        if img_std < 5:
+            print("  ⚠️ WARNING: Image appears nearly blank! Check preprocessing.")
         
         with torch.inference_mode():
             # Run TripoSR inference
             try:
                 if self.use_local:
-              
+                    # Pass image to TripoSR model
+                    # The model's ImagePreprocessor will convert & resize internally
                     scene_codes = self.model([image], device=DEVICE)
-                
+                    
+                    # Extract mesh — when baking texture, we DON'T need vertex colors
+                    # (the texture atlas provides colors instead)
+                    has_vertex_color = not bake_texture
+                    
                     meshes = self.model.extract_mesh(
                         scene_codes,
-                        has_vertex_color=True,
+                        has_vertex_color=has_vertex_color,
                         resolution=mc_resolution,
                         threshold=mc_threshold
                     )
                     
-            
                     mesh = meshes[0]
+                    
+                    print(f"  ✓ Mesh extracted: {len(mesh.vertices)} verts, {len(mesh.faces)} faces")
+                    
+                    # Bake texture: UV-mapped texture atlas (from official TripoSR repo)
+                    # This gives MUCH better visual quality than vertex colors
+                    if bake_texture:
+                        mesh = self._bake_texture_atlas(
+                            mesh, scene_codes[0], texture_resolution
+                        )
+                    
+                    # NOTE: Do NOT apply orientation here.
+                    # TripoSR outputs Z-up. The GLB round-trip (export→load in
+                    # postprocessing) can lose transforms applied via apply_transform.
+                    # Orientation fix is done in postprocessing.py AFTER all mesh
+                    # operations, by directly swapping vertex coordinates.
+                    
                     mesh.export(str(output_path))
                 else:
-                    
                     if image.mode != 'RGB':
                         image = image.convert('RGB')
                     
-                    # Run model
                     with torch.no_grad():
                         outputs = self.model(image, device=DEVICE)
                     
-                    # Extract mesh
                     if hasattr(outputs, 'meshes') and len(outputs.meshes) > 0:
                         mesh = outputs.meshes[0]
                         mesh.export(str(output_path))
                     elif hasattr(self.model, 'extract_mesh'):
                         meshes = self.model.extract_mesh(outputs, resolution=mc_resolution)
-                        meshes[0].export(str(output_path))
+                        mesh = meshes[0]
+                        mesh.export(str(output_path))
                     else:
                         raise Exception("Could not extract mesh from model output")
                 
             except Exception as e:
                 print(f"  ⚠️ Error during generation: {e}")
-                
-                # Fallback: Try alternative method
-                try:
-                 
-                    if image.mode != 'RGB':
-                        image = image.convert('RGB')
-                    
-                    # Try calling with different API
-                    result = self.model(image, device=DEVICE)
-                    
-                    if hasattr(result, 'export'):
-                        result.export(str(output_path))
-                    elif isinstance(result, tuple) and len(result) >= 2:
-                        vertices, faces = result[0], result[1]
-                        if isinstance(vertices, torch.Tensor):
-                            vertices = vertices.cpu().numpy()
-                        if isinstance(faces, torch.Tensor):
-                            faces = faces.cpu().numpy()
-                        self._export_to_glb(vertices, faces, str(output_path))
-                    else:
-                        raise Exception(f"Unexpected output format: {type(result)}")
-                        
-                except Exception as e2:
-                    raise Exception(f"All generation methods failed: {e}, {e2}")
+                import traceback
+                traceback.print_exc()
+                raise Exception(f"3D generation failed: {e}")
         
-        print(f"  ✓ Model saved to {output_path}")
+        # Log mesh stats
+        try:
+            mesh_check = trimesh.load(str(output_path), force='mesh')
+            print(f"  ✓ Model saved: {len(mesh_check.vertices)} verts, {len(mesh_check.faces)} faces")
+            extents = mesh_check.extents
+            print(f"  ✓ Extents: X={extents[0]:.3f}, Y={extents[1]:.3f}, Z={extents[2]:.3f}")
+        except:
+            print(f"  ✓ Model saved to {output_path}")
+        
         return str(output_path)
+    
+    def _bake_texture_atlas(
+        self,
+        mesh: 'trimesh.Trimesh',
+        scene_code: torch.Tensor,
+        texture_resolution: int = 2048
+    ) -> 'trimesh.Trimesh':
+        """
+        Bake a UV-mapped texture atlas for the mesh.
+        
+        This is from the official TripoSR repo (tsr/bake_texture.py):
+        1. Generate UV atlas with xatlas
+        2. Rasterize position map 
+        3. Query TripoSR's triplane for colors at each UV position
+        4. Export mesh with UV map + texture image
+        
+        Falls back to vertex colors if baking dependencies are missing.
+        """
+        print("  → Baking texture atlas (UV-mapped)...")
+        
+        try:
+            from tsr.bake_texture import bake_texture
+            import xatlas
+            
+            bake_output = bake_texture(
+                mesh, self.model, scene_code, texture_resolution
+            )
+            
+            # Create the textured mesh using xatlas export format
+            # Re-map vertices and faces according to UV atlas
+            textured_vertices = mesh.vertices[bake_output["vmapping"]]
+            textured_normals = mesh.vertex_normals[bake_output["vmapping"]]
+            textured_faces = bake_output["indices"]
+            textured_uvs = bake_output["uvs"]
+            
+            # Create texture image
+            texture_colors = bake_output["colors"]
+            texture_image = Image.fromarray(
+                (texture_colors * 255.0).astype(np.uint8)
+            ).transpose(Image.FLIP_TOP_BOTTOM)
+            
+            # Build a trimesh with proper UV mapping and texture
+            import trimesh.visual
+            
+            material = trimesh.visual.material.PBRMaterial(
+                baseColorTexture=texture_image,
+                metallicFactor=0.0,
+                roughnessFactor=1.0
+            )
+            
+            visual = trimesh.visual.TextureVisuals(
+                uv=textured_uvs,
+                material=material
+            )
+            
+            textured_mesh = trimesh.Trimesh(
+                vertices=textured_vertices,
+                faces=textured_faces,
+                vertex_normals=textured_normals,
+                visual=visual
+            )
+            
+            print(f"    ✓ Texture baked: {texture_resolution}x{texture_resolution}px atlas")
+            print(f"    ✓ UV-mapped mesh: {len(textured_vertices)} verts, {len(textured_faces)} faces")
+            return textured_mesh
+            
+        except ImportError as e:
+            print(f"    ⚠️ Bake-texture dependencies missing ({e})")
+            print(f"    → Install with: pip install xatlas moderngl")
+            print(f"    → Falling back to vertex colors")
+            
+            # Re-extract with vertex colors
+            scene_codes_batch = scene_code.unsqueeze(0)
+            meshes = self.model.extract_mesh(
+                scene_codes_batch,
+                has_vertex_color=True,
+                resolution=TripoConfig.MC_RESOLUTION,
+                threshold=TripoConfig.MC_THRESHOLD
+            )
+            return meshes[0]
+            
+        except Exception as e:
+            print(f"    ⚠️ Texture baking failed: {e}")
+            print(f"    → Falling back to vertex colors")
+            import traceback
+            traceback.print_exc()
+            
+            # Re-extract with vertex colors
+            scene_codes_batch = scene_code.unsqueeze(0)
+            meshes = self.model.extract_mesh(
+                scene_codes_batch,
+                has_vertex_color=True,
+                resolution=TripoConfig.MC_RESOLUTION,
+                threshold=TripoConfig.MC_THRESHOLD
+            )
+            return meshes[0]
+        
+        return str(output_path)
+    
+    def _apply_orientation_fix(self, mesh: 'trimesh.Trimesh') -> 'trimesh.Trimesh':
+        """
+        Apply TripoSR's official orientation fix (to_gradio_3d_orientation).
+        
+        TripoSR's coordinate system (from tsr/utils.py get_spherical_cameras):
+            "right hand coordinate system, x back, y right, z up"
+        
+        GLB/Three.js coordinate system:
+            Y-up, -Z forward
+        
+        Transform:
+            1. Rotate -90° around X: converts Z-up → Y-up
+            2. Rotate +90° around Y: adjusts front-facing direction
+        
+        This is applied IMMEDIATELY after mesh extraction, BEFORE any GLB export,
+        to avoid coordinate system issues from GLB format round-trips.
+        """
+        print("  → Fixing orientation (TripoSR Z-up → GLB Y-up)...")
+        
+        # Step 1: Z-up → Y-up
+        rot_x = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+        mesh.apply_transform(rot_x)
+        
+        # Step 2: Adjust front-facing direction
+        rot_y = trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0])
+        mesh.apply_transform(rot_y)
+        
+        extents = mesh.extents
+        print(f"    ✓ Oriented: X={extents[0]:.3f}, Y={extents[1]:.3f}, Z={extents[2]:.3f}")
+        return mesh
     
     def _export_to_glb(self, vertices: np.ndarray, faces: np.ndarray, path: str):
         """Export mesh to GLB format using trimesh"""

@@ -212,6 +212,37 @@ export const getSharedModel = async (req: Request, res: Response) => {
   }
 };
 
+// Get all public/shared models for Showcase page
+export const getShowcaseModels = async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 20, sort = "newest" } = req.query;
+    
+    const query = { isPublic: true };
+    
+    let sortOption: any = { createdAt: -1 }; // newest first
+    if (sort === "oldest") sortOption = { createdAt: 1 };
+    // likes/views sorting could be added with schema fields
+    
+    const total = await Model.countDocuments(query);
+    const models = await Model.find(query)
+      .sort(sortOption)
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit))
+      .select("name type prompt modelUrl thumbnailUrl createdAt userId shareToken");
+    
+    res.json({
+      ok: true,
+      models,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / Number(limit)),
+    });
+  } catch (error) {
+    console.error("Error getting showcase models:", error);
+    res.status(500).json({ ok: false, msg: "Server error" });
+  }
+};
+
 // Duplicate model
 export const duplicateModel = async (req: Request, res: Response) => {
   try {

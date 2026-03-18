@@ -8,6 +8,7 @@ import uuid
 import time
 import random
 import traceback
+import threading
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
@@ -19,15 +20,20 @@ import io
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    # Add CUDA DLL directory for custom_rasterizer and other CUDA extensions
+    cuda_path = os.environ.get('CUDA_PATH') or os.environ.get('CUDA_HOME') or r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1'
+    cuda_bin = os.path.join(cuda_path, 'bin')
+    if os.path.isdir(cuda_bin):
+        os.add_dll_directory(cuda_bin)
 
 from config import (
     HOST, PORT, DEBUG, 
     UPLOAD_DIR, OUTPUT_DIR,
-    SDConfig, ProcessingConfig
+    SDConfig, ProcessingConfig, Hunyuan3DConfig
 )
-from preprocessing import preprocess_image
-from stable_diffusion import text_to_image
-from triposr_wrapper import image_to_3d
+from preprocessing import preprocess_image, preprocess_for_hunyuan3d, select_best_view_for_triposr
+from stable_diffusion import text_to_image, text_to_multiview
+from hunyuan3d_wrapper import image_to_3d, hunyuan3d_generator
 from postprocessing import postprocess_mesh, render_mesh_thumbnail
 
 # Import Phase 2 services
@@ -72,7 +78,10 @@ def health_check():
         'status': 'healthy',
         'gpu_available': torch.cuda.is_available(),
         'gpu_name': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-        'phase2_available': PHASE2_AVAILABLE
+        'phase2_available': PHASE2_AVAILABLE,
+        '3d_engine': 'Hunyuan3D-2',
+        'texture_enabled': Hunyuan3DConfig.ENABLE_TEXTURE,
+        'turbo_mode': Hunyuan3DConfig.USE_TURBO,
     }
     
     # Add GPU optimizer info if available
@@ -148,42 +157,58 @@ def text_to_3d_endpoint():
         }
         
         # Step 1: Text to Image (Stable Diffusion)
-        print("🎨 Step 1: Text → Image")
+        # Generate colorful 3D render images for best Hunyuan3D reconstruction
+        print("🎨 Step 1: Text → 3D Render Image(s)")
         jobs[job_id]['step'] = 'text-to-image'
         jobs[job_id]['progress'] = 10
         
-        generated_image = text_to_image(prompt, mode, seed=seed)
+        if ProcessingConfig.ENABLE_MULTIVIEW:
+            # Generate 6 views for maximum 3D information
+            print(f"  📷 Multi-view mode: generating {len(ProcessingConfig.MULTIVIEW_VIEWS)} views")
+            view_images = text_to_multiview(prompt, mode, seed=seed, views=ProcessingConfig.MULTIVIEW_VIEWS)
+            
+            # Save all view previews
+            for view_name, view_img in view_images.items():
+                view_path = OUTPUT_DIR / f"{job_id}_view_{view_name}.png"
+                view_img.save(view_path)
+            
+            # Select best single view for Hunyuan3D (three-quarter preferred)
+            generated_image = select_best_view_for_triposr(view_images)
+            
+            # Save the primary preview
+            preview_path = OUTPUT_DIR / f"{job_id}_preview.png"
+            generated_image.save(preview_path)
+            print(f"  ✓ {len(view_images)} views generated, primary saved")
+        else:
+            # Single view generation (faster, less VRAM)
+            generated_image = text_to_image(prompt, mode, seed=seed)
+            preview_path = OUTPUT_DIR / f"{job_id}_preview.png"
+            generated_image.save(preview_path)
+            print(f"  ✓ Preview saved: {preview_path}")
         
-        # Save preview image
-        preview_path = OUTPUT_DIR / f"{job_id}_preview.png"
-        generated_image.save(preview_path)
-        print(f"  ✓ Preview saved: {preview_path}")
+        # Unload SD models to free VRAM for Hunyuan3D
+        print("\n🗑️ Unloading SD models to free VRAM for Hunyuan3D...")
+        from stable_diffusion import sd_generator
+        sd_generator.unload_models()
         
-        # Step 2: Preprocess Image
-        print("\n🖼️ Step 2: Preprocessing image")
+        # Step 2: Preprocess Image for Hunyuan3D
+        print("\n🖼️ Step 2: Preprocessing image for Hunyuan3D")
         jobs[job_id]['step'] = 'preprocessing'
         jobs[job_id]['progress'] = 40
         
-        target_size = SDConfig.SD15_RESOLUTION if mode == 'fast' else SDConfig.SDXL_RESOLUTION
-        preprocessed = preprocess_image(
-            generated_image,
-            remove_bg=True,
-            normalize=True,
-            target_size=min(target_size, 512),  # TripoSR works best at 512
-            foreground_ratio=0.85  # TripoSR default, well-tested
-        )
+        preprocessed = preprocess_for_hunyuan3d(generated_image)
         
         # Save preprocessed image
         preprocessed_path = OUTPUT_DIR / f"{job_id}_preprocessed.png"
         preprocessed.save(preprocessed_path)
         
-        # Step 3: Image to 3D (TripoSR)
-        print("\n🔮 Step 3: Image → 3D")
+        # Step 3: Image to 3D (Hunyuan3D-2) — shape only (texture via Phase 2 if desired)
+        print("\n🔮 Step 3: Image → 3D (Hunyuan3D-2)")
         jobs[job_id]['step'] = 'image-to-3d'
         jobs[job_id]['progress'] = 60
         
         raw_model_path = str(OUTPUT_DIR / f"{job_id}_raw.glb")
-        image_to_3d(preprocessed, raw_model_path)
+        image_to_3d(preprocessed, raw_model_path, with_texture=False)
         
         # Step 4: Post-process 3D model
         print("\n🔧 Step 4: Post-processing 3D model")
@@ -191,7 +216,7 @@ def text_to_3d_endpoint():
         jobs[job_id]['progress'] = 85
         
         final_model_path = str(OUTPUT_DIR / f"{job_id}.glb")
-        postprocess_mesh(raw_model_path, final_model_path)
+        postprocess_mesh(raw_model_path, final_model_path, source='hunyuan3d')
         
         # Cleanup raw model
         try:
@@ -282,32 +307,33 @@ def image_to_3d_endpoint():
         # Save original
         original_path = UPLOAD_DIR / f"{job_id}_original.png"
         image.save(original_path)
-        print(f"  ✓ Original saved: {original_path}")
+        print(f"  ✓ Original saved: {original_path} (size: {image.size})")
         
-        # Step 1: Preprocess Image
-        print("\n🖼️ Step 1: Preprocessing image")
+        # Unload SD models if loaded (free VRAM for Hunyuan3D)
+        try:
+            from stable_diffusion import sd_generator
+            sd_generator.unload_models()
+        except:
+            pass
+        
+        # Step 1: Preprocess Image for Hunyuan3D
+        print("\n🖼️ Step 1: Preprocessing image for Hunyuan3D")
         jobs[job_id]['step'] = 'preprocessing'
         jobs[job_id]['progress'] = 20
         
-        preprocessed = preprocess_image(
-            image,
-            remove_bg=True,
-            normalize=True,
-            target_size=512,
-            foreground_ratio=0.85  # TripoSR default, well-tested
-        )
+        preprocessed = preprocess_for_hunyuan3d(image)
         
         # Save preprocessed
         preprocessed_path = OUTPUT_DIR / f"{job_id}_preprocessed.png"
         preprocessed.save(preprocessed_path)
         
-        # Step 2: Image to 3D (TripoSR)
-        print("\n🔮 Step 2: Image → 3D")
+        # Step 2: Image to 3D (Hunyuan3D-2) — shape only
+        print("\n🔮 Step 2: Image → 3D (Hunyuan3D-2)")
         jobs[job_id]['step'] = 'image-to-3d'
         jobs[job_id]['progress'] = 50
         
         raw_model_path = str(OUTPUT_DIR / f"{job_id}_raw.glb")
-        image_to_3d(preprocessed, raw_model_path)
+        image_to_3d(preprocessed, raw_model_path, with_texture=False)
         
         # Step 3: Post-process 3D model
         print("\n🔧 Step 3: Post-processing 3D model")
@@ -315,7 +341,7 @@ def image_to_3d_endpoint():
         jobs[job_id]['progress'] = 80
         
         final_model_path = str(OUTPUT_DIR / f"{job_id}.glb")
-        postprocess_mesh(raw_model_path, final_model_path)
+        postprocess_mesh(raw_model_path, final_model_path, source='hunyuan3d')
         
         # Cleanup raw model
         try:
@@ -365,33 +391,131 @@ def get_job_status(job_id):
     return jsonify({'ok': True, **jobs[job_id]})
 
 
+def _run_batch_generation(job_id, prompt, mode, num_variants):
+    """
+    Background worker for batch generation.
+    Updates jobs[job_id] in-place so the polling endpoint can track progress.
+    """
+    try:
+        start_time = time.time()
+        
+        # Step 1: Generate N images with different seeds
+        print(f"🎨 Step 1: Generating {num_variants} images with different seeds...")
+        seeds = [random.randint(0, 2**31 - 1) for _ in range(num_variants)]
+        generated_images = []
+        
+        for i, seed in enumerate(seeds):
+            print(f"\n  → Variant {i+1}/{num_variants} (seed: {seed})")
+            jobs[job_id]['step'] = f'generating-image-{i+1}'
+            jobs[job_id]['progress'] = int(5 + (i / num_variants) * 30)
+            
+            if ProcessingConfig.ENABLE_MULTIVIEW:
+                view_images = text_to_multiview(prompt, mode, seed=seed, views=ProcessingConfig.MULTIVIEW_VIEWS)
+                img = select_best_view_for_triposr(view_images)
+                for view_name, view_img in view_images.items():
+                    view_path = OUTPUT_DIR / f"{job_id}_v{i}_view_{view_name}.png"
+                    view_img.save(view_path)
+            else:
+                img = text_to_image(prompt, mode, seed=seed)
+            
+            preview_path = OUTPUT_DIR / f"{job_id}_v{i}_preview.png"
+            img.save(preview_path)
+            generated_images.append((img, seed))
+        
+        # Unload SD models to free VRAM for Hunyuan3D
+        print("\n🗑️ Unloading SD models to free VRAM for Hunyuan3D...")
+        from stable_diffusion import sd_generator
+        sd_generator.unload_models()
+        
+        # Step 2: Preprocess and convert each image to 3D
+        print(f"\n🔮 Step 2: Converting {num_variants} images to 3D (Hunyuan3D-2)...")
+        
+        for i, (img, seed) in enumerate(generated_images):
+            print(f"\n  → Model {i+1}/{num_variants}")
+            jobs[job_id]['step'] = f'processing-variant-{i+1}'
+            jobs[job_id]['progress'] = int(35 + (i / num_variants) * 55)
+            
+            # Preprocess for Hunyuan3D
+            preprocessed = preprocess_for_hunyuan3d(img)
+            preprocessed_path = OUTPUT_DIR / f"{job_id}_v{i}_preprocessed.png"
+            preprocessed.save(preprocessed_path)
+            
+            # Hunyuan3D — shape only for batch (texture via Phase 2 panel if desired)
+            # Note: Hunyuan3D-Paint texture needs ~16GB VRAM, exceeds RTX 3060 12GB
+            raw_model_path = str(OUTPUT_DIR / f"{job_id}_v{i}_raw.glb")
+            image_to_3d(preprocessed, raw_model_path, with_texture=False)
+            
+            # Post-process
+            final_model_path = str(OUTPUT_DIR / f"{job_id}_v{i}.glb")
+            postprocess_mesh(raw_model_path, final_model_path, source='hunyuan3d')
+            
+            try:
+                os.remove(raw_model_path)
+            except:
+                pass
+            
+            # Render 3D thumbnail
+            thumb_path = str(OUTPUT_DIR / f"{job_id}_v{i}_thumb3d.png")
+            thumb_ok = render_mesh_thumbnail(final_model_path, thumb_path)
+            thumb_url = f"/outputs/{job_id}_v{i}_thumb3d.png" if thumb_ok else f"/outputs/{job_id}_v{i}_preview.png"
+            
+            # Record completed variant immediately
+            variant_data = {
+                'modelPath': f"/outputs/{job_id}_v{i}.glb",
+                'imageUrl': thumb_url,
+                'previewUrl': f"/outputs/{job_id}_v{i}_preview.png",
+                'preprocessedUrl': f"/outputs/{job_id}_v{i}_preprocessed.png",
+                'seed': seed,
+                'variant': i + 1
+            }
+            jobs[job_id]['variants'].append(variant_data)
+            jobs[job_id]['variants_completed'] = i + 1
+            print(f"  ✓ Variant {i+1} complete")
+        
+        # Done
+        elapsed = time.time() - start_time
+        jobs[job_id]['status'] = 'completed'
+        jobs[job_id]['progress'] = 100
+        jobs[job_id]['elapsed'] = elapsed
+        
+        print(f"\n✅ Batch job completed in {elapsed:.1f}s ({num_variants} variants)")
+        
+    except Exception as e:
+        traceback.print_exc()
+        jobs[job_id]['status'] = 'failed'
+        jobs[job_id]['error'] = str(e)
+        print(f"\n❌ Batch job failed: {e}")
+
+
 @app.route('/api/text-to-3d-batch', methods=['POST'])
 def text_to_3d_batch_endpoint():
     """
-    Generate multiple 3D model variants from text prompt.
-    Each variant uses a different random seed for the SD image generation,
-    producing different 3D models from the same prompt.
+    Generate multiple 3D model variants from text prompt (ASYNC).
+    Returns job_id immediately. Poll GET /api/job/<job_id> for progress.
+    Variants appear one-by-one in job status as they complete.
     
     Request JSON:
     {
         "prompt": "a dragon with a hat",
         "mode": "fast" | "quality",
-        "num_variants": 4,
-        "jobId": "xxx"
+        "num_variants": 4
     }
     
-    Response:
+    Immediate Response:
     {
         "ok": true,
-        "variants": [
-            {
-                "modelPath": "/outputs/xxx_v0.glb",
-                "imageUrl": "/outputs/xxx_v0_preview.png",
-                "seed": 12345,
-                "variant": 1
-            },
-            ...
-        ]
+        "jobId": "xxx",
+        "status": "processing"
+    }
+    
+    Poll GET /api/job/xxx → returns:
+    {
+        "status": "processing" | "completed" | "failed",
+        "progress": 0-100,
+        "step": "generating-image-2",
+        "variants_completed": 1,
+        "total_variants": 4,
+        "variants": [ { completed variant data... } ]
     }
     """
     try:
@@ -402,7 +526,7 @@ def text_to_3d_batch_endpoint():
         
         prompt = data['prompt'].strip()
         mode = data.get('mode', 'fast')
-        num_variants = min(int(data.get('num_variants', 4)), 4)  # Max 4 variants
+        num_variants = min(int(data.get('num_variants', 4)), 4)
         job_id = data.get('jobId', str(uuid.uuid4()))
         
         if not prompt:
@@ -415,110 +539,122 @@ def text_to_3d_batch_endpoint():
         print(f"   Variants: {num_variants}")
         print(f"{'='*60}\n")
         
-        start_time = time.time()
-        
-        # Track job
+        # Initialize job tracking
         jobs[job_id] = {
             'status': 'processing',
-            'step': 'generating-images',
+            'step': 'queued',
             'progress': 0,
             'variants_completed': 0,
-            'total_variants': num_variants
+            'total_variants': num_variants,
+            'variants': []  # Filled one-by-one as each completes
         }
         
-        # Step 1: Generate N images with different seeds
-        print(f"🎨 Step 1: Generating {num_variants} images with different seeds...")
-        seeds = [random.randint(0, 2**31 - 1) for _ in range(num_variants)]
-        generated_images = []
+        # Start background thread — returns immediately to caller
+        thread = threading.Thread(
+            target=_run_batch_generation,
+            args=(job_id, prompt, mode, num_variants),
+            daemon=True
+        )
+        thread.start()
         
-        for i, seed in enumerate(seeds):
-            print(f"\n  → Image {i+1}/{num_variants} (seed: {seed})")
-            jobs[job_id]['progress'] = int(5 + (i / num_variants) * 30)
-            
-            img = text_to_image(prompt, mode, seed=seed)
-            
-            # Save preview
-            preview_path = OUTPUT_DIR / f"{job_id}_v{i}_preview.png"
-            img.save(preview_path)
-            
-            generated_images.append((img, seed))
-        
-        # Unload SD models to free VRAM for TripoSR
-        print("\n🗑️ Unloading SD models to free VRAM for TripoSR...")
-        from stable_diffusion import sd_generator
-        sd_generator.unload_models()
-        
-        # Step 2: Preprocess and convert each image to 3D
-        print(f"\n🔮 Step 2: Converting {num_variants} images to 3D...")
-        variants = []
-        
-        target_size = SDConfig.SD15_RESOLUTION if mode == 'fast' else SDConfig.SDXL_RESOLUTION
-        
-        for i, (img, seed) in enumerate(generated_images):
-            print(f"\n  → Model {i+1}/{num_variants}")
-            jobs[job_id]['step'] = f'processing-variant-{i+1}'
-            jobs[job_id]['progress'] = int(35 + (i / num_variants) * 55)
-            jobs[job_id]['variants_completed'] = i
-            
-            # Preprocess
-            preprocessed = preprocess_image(
-                img,
-                remove_bg=True,
-                normalize=True,
-                target_size=min(target_size, 512),
-                foreground_ratio=0.85
-            )
-            
-            # Save preprocessed
-            preprocessed_path = OUTPUT_DIR / f"{job_id}_v{i}_preprocessed.png"
-            preprocessed.save(preprocessed_path)
-            
-            # TripoSR
-            raw_model_path = str(OUTPUT_DIR / f"{job_id}_v{i}_raw.glb")
-            image_to_3d(preprocessed, raw_model_path)
-            
-            # Post-process
-            final_model_path = str(OUTPUT_DIR / f"{job_id}_v{i}.glb")
-            postprocess_mesh(raw_model_path, final_model_path)
-            
-            # Cleanup raw
-            try:
-                os.remove(raw_model_path)
-            except:
-                pass
-            
-            # Render 3D thumbnail
-            thumb_path = str(OUTPUT_DIR / f"{job_id}_v{i}_thumb3d.png")
-            thumb_ok = render_mesh_thumbnail(final_model_path, thumb_path)
-            thumb_url = f"/outputs/{job_id}_v{i}_thumb3d.png" if thumb_ok else f"/outputs/{job_id}_v{i}_preview.png"
-            
-            variants.append({
-                'modelPath': f"/outputs/{job_id}_v{i}.glb",
-                'imageUrl': thumb_url,
-                'seed': seed,
-                'variant': i + 1
-            })
-        
-        # Done
-        elapsed = time.time() - start_time
-        jobs[job_id]['status'] = 'completed'
-        jobs[job_id]['progress'] = 100
-        jobs[job_id]['variants_completed'] = num_variants
-        
-        print(f"\n✅ Batch job completed in {elapsed:.1f}s ({num_variants} variants)")
-        
+        # Return job_id right away (no waiting!)
         return jsonify({
             'ok': True,
             'jobId': job_id,
-            'variants': variants,
+            'status': 'processing',
+            'total_variants': num_variants
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/apply-texture', methods=['POST'])
+def apply_hunyuan_texture_endpoint():
+    """
+    Apply Hunyuan3D-Paint texture to an existing untextured GLB model.
+    Called after user selects their preferred variant from shape-only batch.
+    
+    Request JSON:
+    {
+        "modelPath": "/outputs/job_v0.glb",
+        "preprocessedImage": "/outputs/job_v0_preprocessed.png"  (optional)
+    }
+    
+    Response:
+    {
+        "ok": true,
+        "texturedModelPath": "/outputs/job_v0_textured.glb",
+        "elapsed": 180.5
+    }
+    """
+    try:
+        data = request.get_json()
+        model_path_rel = data.get('modelPath', '')
+        
+        if not model_path_rel:
+            return jsonify({'ok': False, 'error': 'modelPath is required'}), 400
+        
+        # Resolve to absolute path
+        model_path = str(OUTPUT_DIR / model_path_rel.lstrip('/').replace('outputs/', ''))
+        
+        if not os.path.exists(model_path):
+            return jsonify({'ok': False, 'error': f'Model file not found: {model_path_rel}'}), 404
+        
+        # Load preprocessed image if available (for texture guidance)
+        preprocessed_path = data.get('preprocessedImage', '')
+        image = None
+        if preprocessed_path:
+            abs_preproc = str(OUTPUT_DIR / preprocessed_path.lstrip('/').replace('outputs/', ''))
+            if os.path.exists(abs_preproc):
+                from PIL import Image as PILImage
+                image = PILImage.open(abs_preproc).convert('RGBA')
+        
+        print(f"\n{'='*60}")
+        print(f"🎨 Applying Hunyuan3D-Paint texture")
+        print(f"   Model: {model_path_rel}")
+        print(f"   Image: {'yes' if image else 'no'}")
+        print(f"{'='*60}\n")
+        
+        start_time = time.time()
+        
+        # Load the untextured mesh
+        import trimesh as tm
+        mesh = tm.load(model_path, force='mesh')
+        
+        # Load and apply Hunyuan3D-Paint texture pipeline
+        from hunyuan3d_wrapper import hunyuan3d_generator
+        hunyuan3d_generator._load_texture_model()
+        
+        if not hunyuan3d_generator.initialized_texture or hunyuan3d_generator.texture_pipeline is None:
+            return jsonify({'ok': False, 'error': 'Texture model not available'}), 503
+        
+        # Free VRAM before texture
+        import torch, gc
+        torch.cuda.empty_cache()
+        gc.collect()
+        
+        # Apply texture
+        textured_mesh = hunyuan3d_generator.texture_pipeline(mesh, image=image)
+        
+        # Save textured model
+        textured_path = model_path.replace('.glb', '_textured.glb')
+        textured_mesh.export(textured_path)
+        
+        elapsed = time.time() - start_time
+        textured_rel = f"/outputs/{os.path.basename(textured_path)}"
+        
+        print(f"\n✅ Texture applied in {elapsed:.1f}s → {textured_rel}")
+        
+        return jsonify({
+            'ok': True,
+            'texturedModelPath': textured_rel,
             'elapsed': elapsed
         })
         
     except Exception as e:
         traceback.print_exc()
-        if 'job_id' in locals() and job_id in jobs:
-            jobs[job_id]['status'] = 'failed'
-            jobs[job_id]['error'] = str(e)
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
@@ -529,6 +665,33 @@ def serve_output(filename):
     if not file_path.exists():
         return jsonify({'ok': False, 'error': 'File not found'}), 404
     return send_file(str(file_path))
+
+
+@app.route('/api/debug/images/<job_id>', methods=['GET'])
+def debug_images(job_id):
+    """
+    List all generated images for a job (for debugging SD → TripoSR pipeline).
+    Returns URLs for: SD preview, preprocessed image, 3D thumbnail, multi-view images.
+    
+    Usage: GET /api/debug/images/<job_id>
+    Or for batch: GET /api/debug/images/<job_id>?variant=0
+    """
+    variant = request.args.get('variant', None)
+    prefix = f"{job_id}_v{variant}_" if variant is not None else f"{job_id}_"
+    
+    images = {}
+    for f in OUTPUT_DIR.iterdir():
+        if f.name.startswith(prefix) and f.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+            label = f.name.replace(prefix, '').replace(f.suffix, '')
+            images[label or 'main'] = f"/outputs/{f.name}"
+    
+    return jsonify({
+        'ok': True,
+        'jobId': job_id,
+        'variant': variant,
+        'images': images,
+        'hint': 'Open these URLs in browser to inspect pipeline output: preview=SD image, preprocessed=after enhancement, thumb3d=3D render'
+    })
 
 
 @app.route('/uploads/<path:filename>', methods=['GET'])
@@ -568,4 +731,4 @@ if __name__ == '__main__':
 ║  Port: {PORT:<5}                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
-    app.run(host=HOST, port=PORT, debug=DEBUG)
+    app.run(host=HOST, port=PORT, debug=DEBUG, threaded=True)

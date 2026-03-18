@@ -298,17 +298,31 @@ export async function getPhase2JobStatus(jobId) {
 
 /**
  * Download model file from server
- * @param {string} filePath - Path to file on server
+ * @param {string} filePath - Path to file on server (e.g., /outputs/xxx.glb)
  * @param {string} filename - Name for downloaded file
  */
 export async function downloadModelFile(filePath, filename) {
   try {
-    const res = await fetch(`${API_BASE.replace('/api', '')}${filePath}`, {
-      headers: authHeaders()
-    });
+    // Determine the correct base URL for the file
+    // Model files are served by AI service (port 8000), not the backend (port 5000)
+    const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8000";
+    
+    let downloadUrl;
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+      // Full URL - use as-is
+      downloadUrl = filePath;
+    } else if (filePath.startsWith('/outputs/')) {
+      // AI service output path
+      downloadUrl = `${AI_SERVICE_URL}${filePath}`;
+    } else {
+      // Fallback: try AI service
+      downloadUrl = `${AI_SERVICE_URL}${filePath}`;
+    }
+    
+    const res = await fetch(downloadUrl);
     
     if (!res.ok) {
-      throw new Error('Download failed');
+      throw new Error(`Download failed: ${res.status} ${res.statusText}`);
     }
     
     const blob = await res.blob();

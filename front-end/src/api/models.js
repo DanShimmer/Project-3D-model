@@ -68,3 +68,9 @@ export const duplicateModel = async (modelId) =>
     method: "POST",
     headers: authHeaders(),
   }).then(res => res.json());
+
+// Get showcase models (public, no auth required)
+export const getShowcaseModels = async (page = 1, limit = 20, sort = "newest") => {
+  const params = new URLSearchParams({ page, limit, sort });
+  return fetch(`${API_URL}/showcase?${params}`).then(res => res.json());
+};

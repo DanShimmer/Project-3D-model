@@ -1,5 +1,8 @@
 # Python AI Service Dependencies
-# Requires CUDA-enabled GPU
+# Requires CUDA-enabled GPU (NVIDIA RTX 3060 12GB+ recommended)
+# ============================================================
+# 3D Engine: Hunyuan3D-2 (Tencent) — replaces TripoSR
+# ============================================================
 
 # Core
 flask==3.0.0
@@ -7,33 +10,39 @@ flask-cors==4.0.0
 gunicorn==21.2.0
 python-dotenv==1.0.0
 
-# PyTorch (install with CUDA support)
+# PyTorch (install with CUDA support FIRST)
 # For CUDA 11.8: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 # For CUDA 12.1: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-torch>=2.0.0
-torchvision>=0.15.0
+torch>=2.1.0
+torchvision>=0.16.0
 
-# Stable Diffusion
+# Stable Diffusion (text-to-image stage)
 diffusers>=0.24.0
 transformers>=4.35.0
 accelerate>=0.24.0
 safetensors>=0.4.0
 xformers>=0.0.22  # Memory efficient attention
 
-# TripoSR dependencies
+# Hunyuan3D-2 dependencies
+# NOTE: hy3dgen is installed from the cloned Hunyuan3D-2 repo via `pip install -e .`
+# See setup_hunyuan3d.bat for full installation instructions
 trimesh>=4.0.0
 pygltflib>=1.16.0
+huggingface-hub>=0.19.0
 einops>=0.7.0
 omegaconf>=2.3.0
-huggingface-hub>=0.19.0
+ninja                    # Required for building CUDA extensions (custom_rasterizer, etc.)
+plyfile>=1.0             # PLY mesh format support
+scikit-image>=0.21.0     # Image processing for texture
+jinja2>=3.1.0            # Template engine (used by Hunyuan3D internally)
 
 # Image processing
 Pillow>=10.0.0
 opencv-python>=4.8.0
-rembg>=2.0.50  # Background removal
+rembg>=2.0.50  # Background removal (also used by Hunyuan3D's own rembg)
 numpy>=1.24.0
 scipy>=1.11.0
 
-# 3D processing
+# 3D processing & mesh cleanup
 open3d>=0.18.0
 pymeshlab>=2023.12

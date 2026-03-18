@@ -6,6 +6,8 @@ import {
   textTo3DBatch,
   imageTo3D,
   getJobStatus,
+  getBatchStatus,
+  applyHunyuanTexture,
   checkAIHealth
 } from "../controllers/generate.controller";
 
@@ -44,5 +46,11 @@ router.post("/image-to-3d", upload.single("image"), imageTo3D);
 
 // Get job status
 router.get("/job/:jobId", getJobStatus);
+
+// Get batch job status (polling endpoint for async batch generation)
+router.get("/batch-status/:jobId", getBatchStatus);
+
+// Apply Hunyuan3D texture to selected variant
+router.post("/apply-texture", applyHunyuanTexture);
 
 export default router;

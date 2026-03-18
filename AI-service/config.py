@@ -17,81 +17,180 @@ for d in [UPLOAD_DIR, OUTPUT_DIR, MODELS_DIR, CACHE_DIR]:
 
 # Model configurations
 class SDConfig:
-    """Stable Diffusion Configuration"""
-    # SD 1.5 - Fast mode (less VRAM, faster)
-    SD15_MODEL = "runwayml/stable-diffusion-v1-5"
-    SD15_RESOLUTION = 512
-    SD15_STEPS = 50          # Higher steps = cleaner image for TripoSR
+    """Stable Diffusion Configuration — Clean 3D Render style for TripoSR
     
-    # SDXL - Quality mode (more VRAM, better quality)
+    DESIGN PHILOSOPHY (revised — learned from official TripoSR + YouTube demos):
+    TripoSR was trained on the Objaverse dataset = rendered 3D objects with
+    COLOR, texture, and studio lighting. The DINOv2 encoder extracts rich
+    visual features from colorful images.
+    
+    PREVIOUS MISTAKE: Gray clay images strip too much info → bad reconstruction.
+    YouTube users feed colorful, detailed images → get great models.
+    
+    SOLUTION: Generate images that look like clean 3D GAME ASSET renders:
+    - Colorful with simple/flat color palette (like a game asset)
+    - Clean studio lighting (soft, even, no dramatic shadows)
+    - Gray background (matches TripoSR training data)
+    - Clear silhouette with solid proportions
+    - Simple surface (not photorealistic, not hyperdetailed)
+    """
+    # SD 1.5 - Fast mode
+    SD15_MODEL = "runwayml/stable-diffusion-v1-5"
+    SD15_RESOLUTION = 512    # 512: SD1.5's native resolution, most stable
+    SD15_STEPS = 25          # DPM++ 2M Karras converges fast at 25
+    SD15_GUIDANCE = 7.5      # 7.5: strong adherence to clay/sculpt style
+    
+    # SDXL - Quality mode
     SDXL_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
     SDXL_RESOLUTION = 1024
-    SDXL_STEPS = 75          # Max quality for SDXL — crisp details for TripoSR
+    SDXL_STEPS = 30          # 30 steps with Karras is enough for SDXL
+    SDXL_GUIDANCE = 7.0      # 7.0: balanced for SDXL
     
-    # Generation params
-    GUIDANCE_SCALE = 9.0     # 9.0: strong prompt adherence for detailed 3D shapes
+    # Shared fallback
+    GUIDANCE_SCALE = 7.5
+    
+    # === NEGATIVE PROMPT — block things that hurt TripoSR reconstruction ===
+    # Block: shadows on ground (reconstructed as geometry), complex backgrounds,
+    # photorealism (too detailed), thin/broken geometry, 2D/flat styles.
+    # DO NOT block: color, simple textures, lighting (these HELP TripoSR)
     NEGATIVE_PROMPT = (
-        # CRITICAL: Prevent holes and thin geometry
-        "holes in body, gaps in mesh, broken geometry, missing parts, "
-        "thin limbs, thin arms, thin legs, skinny, slender, stick figure, "
-        "open mouth showing inside, hollow, see-through, translucent, transparent, "
-        # Quality / Artifacts
-        "blurry, low quality, low resolution, lowres, jpeg artifacts, "
-        "noise, grain, pixelated, compression artifacts, out of focus, bokeh, "
-        "ugly, deformed, distorted, disfigured, mutated, malformed, "
-        # Anatomy (characters/creatures)
-        "bad anatomy, bad proportions, extra limbs, missing limbs, "
-        "fused fingers, too many fingers, long neck, cloned face, floating limbs, "
-        "disconnected body parts, extra heads, extra arms, extra legs, "
-        # Composition (CRITICAL: must be single object)
-        "multiple objects, multiple views, collage, split view, "
-        "side by side, grid, reference sheet, turnaround, diptych, triptych, "
-        # Background/framing (CRITICAL: clean bg for rembg)
-        "frame, border, picture frame, box, container, "
-        "complex background, busy background, gradient background, "
-        "ground, floor, shadow on ground, pedestal, stand, base, table, surface, "
-        "environment, landscape, room, interior, outdoor scene, "
-        # Flatness (CRITICAL: TripoSR needs 3D form)
-        "flat, 2D, drawing, sketch, illustration, painting, cartoon, anime, "
-        "bas-relief, relief, engraved, embossed, coin, medal, stamp, "
-        "icon, logo, sticker, clipart, line art, cel shaded, "
-        "front view, orthographic, flat lighting, no shadows, "
-        # Cropping
-        "cropped, cut off, partial, out of frame, truncated, "
-        # Other
-        "watermark, text, signature, label, caption, "
-        "wireframe, grid, pattern, tiled, transparent background, "
-        "photo, photograph, real person, realistic face"
+        # Kill ground shadows — TripoSR reconstructs them as concave geometry
+        "shadow on ground, cast shadow, drop shadow, ground shadow, "
+        # Kill environment — TripoSR reconstructs background as solid geometry
+        "environment, landscape, scenery, background scene, background details, "
+        "floor, ground, ground plane, "
+        "pedestal, stand, platform, base, surface, table, "
+        # Kill photorealism (too much detail confuses geometry extraction)
+        "photorealistic, photograph, photo, hyperrealistic, "
+        "skin pores, fabric weave, intricate engraving, filigree, "
+        # Kill composition issues
+        "multiple objects, multiple views, split view, "
+        "cropped, cut off, partial body, "
+        "text, logo, watermark, signature, "
+        # Kill thin/broken geometry
+        "thin limbs, stick figure, elongated, stretched, "
+        "floating parts, disconnected, holes, gaps, "
+        "transparent, translucent, see-through, "
+        # Kill flat/2D
+        "flat, 2D, sketch, painting, illustration, "
+        "anime, cartoon style, cel shading, line art"
     )
     
-    # Prompt suffix (appended to enhanced prompt if needed)
-    PROMPT_SUFFIX = ""
+    # === BASE PROMPT — clean 3D render for geometry + color reconstruction ===
+    # KEY INSIGHT: TripoSR was trained on Objaverse renders = colorful 3D objects
+    # with studio lighting. Colorful images give DINOv2 MORE features to work with.
+    # YouTube demos use colorful images → great models.
+    # Gray clay strips info → bad models.
+    BASE_3D_PROMPT = (
+        "3D render, clean studio lighting, solid geometry, "
+        "centered object, gray background, high quality, "
+        "game asset style, simple clean surface, "
+        "sharp silhouette, professional 3D model render"
+    )
+    
+    # === MULTI-VIEW PROMPTS for 6-view generation ===
+    # Each view adds a camera angle modifier to the base prompt.
+    # Same seed across all views ensures consistent object identity.
+    VIEW_PROMPTS = {
+        'front':         'front view, facing camera',
+        'back':          'back view, rear view, from behind',
+        'left':          'left side view, profile view from left',
+        'right':         'right side view, profile view from right',
+        'top':           'top view, top-down view, bird eye view, overhead',
+        'bottom':        'bottom view, underside view, from below',
+        'three_quarter': 'three-quarter view from slightly above, 3/4 perspective',
+    }
 
 
-class TripoConfig:
-    """TripoSR Configuration"""
-    MODEL_ID = "stabilityai/TripoSR"
-    CHUNK_SIZE = 8192
-    MC_RESOLUTION = 512  # 512 is safe max for RTX 3060 12GB (grid = 512³×3×4 = 1.6GB)
-                         # 1024 needs ~12.9GB VRAM → OOM → blob output
-    MC_THRESHOLD = 10.0  # 10: captures fine detail while filtering noise
-                         # Too low (<7) = noise becomes geometry = ugly holes
-                         # Too high (>20) = thin parts disappear
-    FOREGROUND_RATIO = 0.85  # 0.85 is TripoSR's default, well-tested
+class Hunyuan3DConfig:
+    """Hunyuan3D-2 Configuration — High-quality 3D generation from Tencent
+    
+    Hunyuan3D-2 uses a two-stage pipeline:
+    1. Shape generation: Hunyuan3D-DiT (flow-matching diffusion transformer)
+    2. Texture synthesis: Hunyuan3D-Paint (multiview texture baking)
+    
+    Models are downloaded from HuggingFace automatically.
+    
+    VRAM Requirements:
+    - Shape only: ~6 GB
+    - Shape + Texture: ~16 GB (use LOW_VRAM_MODE for 12GB GPUs)
+    
+    Turbo models use 5 steps (vs 50) with FlashVDM for 10x faster inference.
+    Mini models (0.6B) are lighter alternatives to standard (1.1B).
+    """
+    
+    # === Shape Generation Model ===
+    # Options:
+    #   'tencent/Hunyuan3D-2'     (1.1B, standard quality)
+    #   'tencent/Hunyuan3D-2mini' (0.6B, faster, less VRAM)
+    #   'tencent/Hunyuan3D-2mv'   (1.1B, multiview input)
+    SHAPE_MODEL_PATH = "tencent/Hunyuan3D-2"
+    
+    # Subfolder within the model repo:
+    #   'hunyuan3d-dit-v2-0'       (standard, 50 steps)
+    #   'hunyuan3d-dit-v2-0-turbo' (turbo, 5 steps with FlashVDM)
+    #   'hunyuan3d-dit-v2-0-fast'  (fast, guidance distillation)
+    #   'hunyuan3d-dit-v2-mini'    (mini 0.6B)
+    #   'hunyuan3d-dit-v2-mini-turbo' (mini turbo)
+    SHAPE_SUBFOLDER = "hunyuan3d-dit-v2-0-turbo"
+    
+    # === Texture Generation Model ===
+    TEXTURE_MODEL_PATH = "tencent/Hunyuan3D-2"
+    TEXTURE_SUBFOLDER = None  # Uses default paint model
+    ENABLE_TEXTURE = True     # Set False to skip texture (shape only, much faster)
+    
+    # === Inference Settings ===
+    # Turbo mode: 5 steps is enough with FlashVDM
+    # Standard mode: 50 steps for maximum quality
+    USE_TURBO = True
+    NUM_INFERENCE_STEPS = 5   # 5 for turbo, 50 for standard
+    GUIDANCE_SCALE = 5.0      # 5.0 for turbo/flow-matching, 7.5 for standard
+    
+    # === Mesh Extraction Settings ===
+    OCTREE_RESOLUTION = 380   # Higher = more detail (256-512), 380 is good balance
+    NUM_CHUNKS = 200000       # Memory chunks for marching cubes (increase if OOM)
+    MAX_FACES = 100000        # Face reduction target (0 = no reduction)
+    
+    # === GPU/VRAM Settings ===
+    USE_FP16 = True           # Half precision for less VRAM
+    LOW_VRAM_MODE = False     # Disabled: shape-only uses ~6GB, fits in 12GB RTX 3060 without offload
+    
+    # === Reproducibility ===
+    DEFAULT_SEED = 12345
     
 
 class ProcessingConfig:
     """Image/3D Processing Configuration"""
     # Image preprocessing
     TARGET_SIZE = 512
-    BACKGROUND_COLOR = (127, 127, 127)  # GRAY background for TripoSR (0.5 * 255)
-    FOREGROUND_RATIO = 0.85  # TripoSR default, well-tested
+    BACKGROUND_COLOR = (127, 127, 127)  # Gray background (fallback only)
+    FOREGROUND_RATIO = 0.85  # How much of image the object fills
     
-    # 3D post-processing
-    TARGET_FACES = 200000  # 200k: preserves detail from MC 512, keeps file small
-                           # MC 512 typically outputs ~100-300k faces
-    SMOOTHING_ITERATIONS = 0  # 0: preserve all detail from higher MC resolution
-    REMOVE_DISCONNECTED = True  # Remove disconnected components (frames/artifacts)
+    # Image enhancement — DISABLED (Hunyuan3D handles its own preprocessing)
+    ENHANCE_CONTRAST = 1.0    # 1.0 = NO enhancement
+    ENHANCE_SHARPNESS = 1.0   # 1.0 = NO enhancement
+    BILATERAL_DENOISE = False  # DISABLED
+    
+    # Multi-view settings (for Text-to-3D with SD image generation)
+    ENABLE_MULTIVIEW = True
+    MULTIVIEW_VIEWS = ['front', 'back', 'left', 'right', 'top', 'three_quarter']
+    PRIMARY_VIEW = 'three_quarter'  # Best view for single-image reconstruction
+    
+    # 3D post-processing — MINIMAL
+    # Hunyuan3D-2 has built-in mesh cleanup (FloaterRemover, DegenerateFaceRemover)
+    # and outputs Y-up GLB standard. Post-processing is mainly for:
+    # - Ensuring upright orientation
+    # - Normalizing scale for the viewer
+    # - Grounding model at Y=0 for rigging
+    TARGET_FACES = 200000  # Only reduce if exceeding this (unlikely)
+    SMOOTHING_ITERATIONS = 0  # DISABLED: Hunyuan3D output is already smooth
+    REMOVE_DISCONNECTED = True  # Remove floating artifacts
+    
+    # Rigging cleanup
+    SYMMETRIZE_MESH = False     # DISABLED: Hunyuan3D preserves intended asymmetry
+    CLOSE_MESH_HOLES = False    # DISABLED: Hunyuan3D produces cleaner topology
+    MERGE_CLOSE_VERTICES = True # Non-destructive micro-gap cleanup
+    MERGE_THRESHOLD = 0.001     # Vertex merge distance threshold
     
 
 # Server config

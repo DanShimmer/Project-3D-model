@@ -1,18 +1,6 @@
-"""
-Image Preprocessing Module
-Optimized for TripoSR 3D conversion pipeline.
 
-CRITICAL: TripoSR was trained on images with GRAY (0.5/127) background,
-NOT white. Using the wrong background color causes "frame" artifacts
-where TripoSR reconstructs the background as geometry.
-
-This module replicates TripoSR's own preprocessing from tsr/utils.py:
-1. rembg background removal → RGBA
-2. resize_foreground → crop, pad to square, pad by foreground_ratio
-3. Composite on GRAY (0.5) background → RGB
-"""
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance
 from config import ProcessingConfig as cfg
 
 # Lazy load rembg
@@ -138,32 +126,86 @@ def composite_on_gray(image: Image.Image) -> Image.Image:
 
 def enhance_for_3d(image: Image.Image) -> Image.Image:
     """
-    Enhance the preprocessed image to give TripoSR stronger 3D depth cues.
+    Optional image enhancement (DISABLED by default — factors = 1.0).
     
-    TripoSR reconstructs geometry from 2D depth/shading cues.
-    Stronger contrast between light and dark areas = clearer depth signal.
-    Sharper edges = cleaner mesh boundaries.
+    Official TripoSR pipeline does NO enhancement at all.
+    Enhancement was found to HURT quality by amplifying SD artifacts.
     
-    This step runs AFTER composite_on_gray, on the final preprocessed image.
+    With default config (ENHANCE_CONTRAST=1.0, ENHANCE_SHARPNESS=1.0),
+    this function is a no-op passthrough.
     """
-    from PIL import ImageEnhance, ImageFilter
+    result = image
     
-    print("  → Enhancing image for better 3D reconstruction...")
+    # Contrast (only if configured, default 1.0 = no change)
+    contrast_factor = cfg.ENHANCE_CONTRAST
+    if contrast_factor != 1.0:
+        enhancer = ImageEnhance.Contrast(result)
+        result = enhancer.enhance(contrast_factor)
+        print(f"    ✓ Contrast: {contrast_factor}")
     
-    # Step 1: Moderate contrast boost — clearer light/shadow for depth inference
-    enhancer = ImageEnhance.Contrast(image)
-    image = enhancer.enhance(1.2)  # 20% contrast boost — enough for depth cues without adding noise
+    # Sharpness (only if configured, default 1.0 = no change)
+    sharpness_factor = cfg.ENHANCE_SHARPNESS
+    if sharpness_factor != 1.0:
+        enhancer = ImageEnhance.Sharpness(result)
+        result = enhancer.enhance(sharpness_factor)
+        print(f"    ✓ Sharpness: {sharpness_factor}")
     
-    # Step 2: Moderate sharpen — crisper edges without creating noise artifacts
-    enhancer = ImageEnhance.Sharpness(image)
-    image = enhancer.enhance(1.3)  # 30% sharpness — clean edges without ringing artifacts
+    return result
+
+
+def select_best_view_for_triposr(views: dict) -> Image.Image:
+    """
+    From a dict of {view_name: PIL Image}, select the best single view
+    for 3D reconstruction (works for both TripoSR and Hunyuan3D).
     
-    # Step 3: Slight saturation boost
-    enhancer = ImageEnhance.Color(image)
-    image = enhancer.enhance(1.1)  # 10% saturation — subtle surface differentiation
+    Priority:
+    1. three_quarter view (shows most 3D information — front + side + top)
+    2. front view (standard, well-supported by training data)
+    3. Any available view
+    """
+    priority = ['three_quarter', 'front', 'left', 'right', 'back', 'top']
     
-    print("    ✓ Contrast +20%, Sharpness +30%, Saturation +10%")
-    return image
+    for view_name in priority:
+        if view_name in views:
+            print(f"  → Selected '{view_name}' view for 3D reconstruction")
+            return views[view_name]
+    
+    # Fallback: return first available
+    first_key = next(iter(views))
+    print(f"  → Using '{first_key}' view (fallback)")
+    return views[first_key]
+
+
+def preprocess_for_hunyuan3d(
+    image: Image.Image,
+    remove_bg: bool = True,
+) -> Image.Image:
+    """
+    Preprocessing pipeline for Hunyuan3D-2.
+    
+    Hunyuan3D-2 expects RGBA image with transparent background.
+    Unlike TripoSR (which needs gray background), Hunyuan3D has its own
+    built-in background removal and image preprocessing, so we just need
+    to ensure the image is clean RGBA.
+    
+    Pipeline:
+    1. Remove background → RGBA with transparent bg
+    2. Resize foreground to fill ~85% of image area
+    3. Return as RGBA (NOT composited on gray — Hunyuan3D handles this)
+    """
+    # Step 1: Remove background → RGBA
+    if remove_bg:
+        print("  → Removing background for Hunyuan3D...")
+        rgba_image = remove_background(image)
+    else:
+        rgba_image = image.convert('RGBA') if image.mode != 'RGBA' else image
+    
+    # Step 2: Resize foreground (crop, pad to square, pad by ratio)
+    print(f"  → Resizing foreground (ratio: {cfg.FOREGROUND_RATIO})...")
+    rgba_image = resize_foreground(rgba_image, cfg.FOREGROUND_RATIO)
+    
+    print("  ✓ Hunyuan3D preprocessing complete (RGBA)")
+    return rgba_image
 
 
 def preprocess_image(
@@ -171,20 +213,21 @@ def preprocess_image(
     remove_bg: bool = True,
     normalize: bool = True,
     target_size: int = None,
-    foreground_ratio: float = 0.85
+    foreground_ratio: float = 0.85,
+    enhance: bool = True
 ) -> Image.Image:
     """
-    Full preprocessing pipeline optimized for TripoSR 3D conversion.
-    Replicates TripoSR's own preprocessing from run.py:
+    Full preprocessing pipeline for TripoSR 3D conversion.
+    Matches OFFICIAL TripoSR run.py pipeline.
     
     1. Remove background → RGBA with transparent bg
     2. Resize foreground → crop, pad to square, pad by ratio  
     3. Composite on GRAY (0.5) background → RGB
-    4. Resize to target size
+    4. (Optional) Enhancement — DISABLED by default (factors = 1.0)
+    5. Resize to target size (512)
     
-    CRITICAL: Step 3 uses GRAY background, NOT white.
-    TripoSR was trained on gray backgrounds. White backgrounds cause
-    the model to reconstruct the background as geometry ("frame" artifact).
+    IMPORTANT: Official TripoSR does steps 1-3 only, NO enhancement.
+    Enhancement is disabled by default (config factors = 1.0).
     """
     if target_size is None:
         target_size = cfg.TARGET_SIZE
@@ -204,14 +247,15 @@ def preprocess_image(
     print("  → Compositing on gray background (TripoSR standard)...")
     result = composite_on_gray(rgba_image)
     
-    # Step 3.5: Enhance for 3D reconstruction (sharpen + contrast)
-    result = enhance_for_3d(result)
+    # Step 4: Enhancement (DISABLED by default — official TripoSR does NONE)
+    if enhance:
+        result = enhance_for_3d(result)
     
-    # Step 4: Resize to target size
+    # Step 5: Resize to target size
     print(f"  → Resizing to {target_size}px...")
     result = result.resize((target_size, target_size), Image.Resampling.LANCZOS)
     
-    print("  ✓ Preprocessing complete (gray background for TripoSR)")
+    print("  ✓ Preprocessing complete")
     return result
 
 

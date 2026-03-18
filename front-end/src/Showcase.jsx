@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
 import { LogoIcon } from "./Components/Logo";
 import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
+import ModelThumbnail from "./Components/ModelThumbnail";
 import { 
   Heart, 
   Share2, 
@@ -23,9 +24,12 @@ import {
   X,
   Send,
   Sun,
-  Moon
+  Moon,
+  Loader2
 } from "lucide-react";
 import { useTheme } from "./contexts/ThemeContext";
+import { getShowcaseModels } from "./api/models";
+import { downloadModelFile } from "./api/phase2";
 
 // Helper function to get model type from title/description
 const getModelTypeFromPrompt = (title, description) => {
@@ -139,33 +143,66 @@ export default function ShowcasePage() {
   const [selectedModel, setSelectedModel] = useState(null);
   const [likedModels, setLikedModels] = useState(new Set());
   const [savedModels, setSavedModels] = useState(new Set());
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const canvasRef = useRef(null);
 
-  // Load models from localStorage and merge with sample data
+  // Load models from backend API, fallback to sample data
   useEffect(() => {
-    const sharedModels = JSON.parse(localStorage.getItem("pv_showcase_models") || "[]");
+    const fetchModels = async () => {
+      setLoading(true);
+      try {
+        const res = await getShowcaseModels(currentPage, 20, selectedCategory === "newest" ? "newest" : "newest");
+        if (res.ok && res.models && res.models.length > 0) {
+          // Convert backend models to showcase format
+          const backendModels = res.models.map(m => ({
+            id: m._id,
+            title: m.name || "Untitled Model",
+            description: m.prompt || `${m.type} model`,
+            image: m.thumbnailUrl || null,
+            modelUrl: m.modelUrl || null,
+            author: m.userId?.username || m.userId?.email || "community",
+            authorAvatar: null,
+            likes: 0,
+            comments: 0,
+            views: 0,
+            createdAt: new Date(m.createdAt).toLocaleDateString(),
+            tags: [m.type || "ai-generated", "community"],
+            isDemo: false,
+          }));
+          
+          // On first page, append sample models as filler; on later pages, just backend
+          if (currentPage === 1) {
+            setModels([...backendModels, ...SAMPLE_MODELS]);
+          } else {
+            setModels(prev => [...prev, ...backendModels]);
+          }
+          setTotalPages(res.pages || 1);
+        } else {
+          // No backend models — show sample data
+          if (currentPage === 1) {
+            setModels(SAMPLE_MODELS);
+          }
+        }
+      } catch (err) {
+        console.warn("Showcase API unavailable, using sample data:", err.message);
+        if (currentPage === 1) {
+          setModels(SAMPLE_MODELS);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
     
-    // Convert shared models to match the format
-    const formattedSharedModels = sharedModels.map(m => ({
-      ...m,
-      image: m.imageUrl || "https://via.placeholder.com/400x400?text=3D+Model",
-      author: m.author || "anonymous",
-      authorAvatar: null,
-      likes: m.likes || 0,
-      comments: m.comments?.length || 0,
-      views: Math.floor(Math.random() * 500),
-      tags: ["ai-generated"]
-    }));
-    
-    // Merge with sample models
-    setModels([...formattedSharedModels, ...SAMPLE_MODELS]);
+    fetchModels();
     
     // Load liked and saved models from localStorage
     const liked = JSON.parse(localStorage.getItem("pv_liked_models") || "[]");
     const saved = JSON.parse(localStorage.getItem("pv_saved_models") || "[]");
     setLikedModels(new Set(liked));
     setSavedModels(new Set(saved));
-  }, []);
+  }, [currentPage]);
 
   // Canvas background
   useEffect(() => {
@@ -479,6 +516,12 @@ export default function ShowcasePage() {
           </div>
 
           {/* Models Grid */}
+          {loading && models.length === 0 ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className={`w-8 h-8 animate-spin ${currentTheme.accentColor}`} />
+              <span className={`ml-3 ${currentTheme.textSecondary}`}>Loading models...</span>
+            </div>
+          ) : (
           <div className={`grid gap-6 ${
             viewMode === "grid" 
               ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" 
@@ -501,23 +544,18 @@ export default function ShowcasePage() {
                   onClick={() => setSelectedModel(model)}
                 >
                   <div className={`absolute inset-0 bg-gradient-to-br ${theme === 'dark' ? 'from-lime-500/5' : 'from-cyan-500/5'} to-transparent`} />
-                  {model.isDemo || !model.image || model.image.includes("placeholder") ? (
+                  {model.isDemo || (!model.image && !model.modelUrl) || (model.image && model.image.includes("placeholder")) ? (
                     <DemoModelPreview 
                       modelType={getModelTypeFromPrompt(model.title, model.description)}
                       className="w-full h-full"
                       autoRotate={true}
-                    />
-                  ) : model.image ? (
-                    <img 
-                      src={model.image} 
-                      alt={model.title}
-                      className="w-full h-full object-cover"
                     />
                   ) : (
-                    <DemoModelPreview 
-                      modelType={getModelTypeFromPrompt(model.title, model.description)}
+                    <ModelThumbnail
+                      modelUrl={model.modelUrl}
+                      thumbnailUrl={model.image}
+                      name={model.title}
                       className="w-full h-full"
-                      autoRotate={true}
                     />
                   )}
                   
@@ -598,7 +636,24 @@ export default function ShowcasePage() {
                       <button className={`p-2 rounded-lg ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>
                         <Share2 className="w-4 h-4" />
                       </button>
-                      <button className={`p-2 rounded-lg ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}>
+                      <button 
+                        onClick={async () => {
+                          if (model.modelUrl) {
+                            try {
+                              const blob = await downloadModelFile(model.modelUrl);
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `${model.title || "model"}.glb`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            } catch (e) {
+                              console.error("Download failed:", e);
+                            }
+                          }
+                        }}
+                        className={`p-2 rounded-lg ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} ${currentTheme.textSecondary} hover:${currentTheme.text} transition-colors`}
+                      >
                         <Download className="w-4 h-4" />
                       </button>
                     </div>
@@ -607,9 +662,10 @@ export default function ShowcasePage() {
               </motion.div>
             ))}
           </div>
+          )}
 
           {/* Empty State */}
-          {sortedModels.length === 0 && (
+          {sortedModels.length === 0 && !loading && (
             <div className="text-center py-20">
               <div className={`w-20 h-20 mx-auto mb-6 rounded-full ${currentTheme.cardBg} flex items-center justify-center`}>
                 <Box className={`w-10 h-10 ${currentTheme.textMuted}`} />
@@ -630,9 +686,14 @@ export default function ShowcasePage() {
           )}
 
           {/* Load More */}
-          {sortedModels.length > 0 && (
+          {sortedModels.length > 0 && currentPage < totalPages && (
             <div className="text-center mt-12">
-              <button className={`px-8 py-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-full ${currentTheme.textSecondary} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-colors`}>
+              <button 
+                onClick={() => setCurrentPage(prev => prev + 1)}
+                disabled={loading}
+                className={`px-8 py-3 ${currentTheme.cardBg} border ${currentTheme.border} rounded-full ${currentTheme.textSecondary} ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-colors flex items-center gap-2 mx-auto disabled:opacity-50`}
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 Load more
               </button>
             </div>
@@ -668,23 +729,18 @@ export default function ShowcasePage() {
               <div className="grid md:grid-cols-2 gap-0">
                 {/* Image/3D View */}
                 <div className={`aspect-square ${theme === 'dark' ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-100 to-gray-200'} relative overflow-hidden`}>
-                  {selectedModel.isDemo || !selectedModel.image || selectedModel.image.includes("placeholder") ? (
+                  {selectedModel.isDemo || (!selectedModel.image && !selectedModel.modelUrl) || (selectedModel.image && selectedModel.image.includes("placeholder")) ? (
                     <DemoModelPreview 
                       modelType={getModelTypeFromPrompt(selectedModel.title, selectedModel.description)}
                       className="w-full h-full"
                       autoRotate={true}
-                    />
-                  ) : selectedModel.image ? (
-                    <img 
-                      src={selectedModel.image}
-                      alt={selectedModel.title}
-                      className="w-full h-full object-cover"
                     />
                   ) : (
-                    <DemoModelPreview 
-                      modelType={getModelTypeFromPrompt(selectedModel.title, selectedModel.description)}
+                    <ModelThumbnail
+                      modelUrl={selectedModel.modelUrl}
+                      thumbnailUrl={selectedModel.image}
+                      name={selectedModel.title}
                       className="w-full h-full"
-                      autoRotate={true}
                     />
                   )}
                 </div>
@@ -758,7 +814,24 @@ export default function ShowcasePage() {
                       <Bookmark className={`w-5 h-5 ${savedModels.has(selectedModel.id) ? "fill-current" : ""}`} />
                       {savedModels.has(selectedModel.id) ? "Saved" : "Save"}
                     </button>
-                    <button className={`py-3 px-4 ${currentTheme.accentBg} text-white rounded-xl font-medium flex items-center justify-center gap-2 ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} transition-colors`}>
+                    <button 
+                      onClick={async () => {
+                        if (selectedModel.modelUrl) {
+                          try {
+                            const blob = await downloadModelFile(selectedModel.modelUrl);
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `${selectedModel.title || "model"}.glb`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          } catch (e) {
+                            console.error("Download failed:", e);
+                          }
+                        }
+                      }}
+                      className={`py-3 px-4 ${currentTheme.accentBg} text-white rounded-xl font-medium flex items-center justify-center gap-2 ${theme === 'dark' ? 'hover:bg-lime-400' : 'hover:bg-cyan-400'} transition-colors`}
+                    >
                       <Download className="w-5 h-5" />
                     </button>
                   </div>

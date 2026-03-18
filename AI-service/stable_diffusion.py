@@ -3,6 +3,12 @@ Stable Diffusion Text-to-Image Generator
 Supports SD 1.5 (fast) and SDXL (quality)
 
 Optimized for RTX 3060 12GB
+
+PIPELINE: text → SD 3D render image → preprocess → TripoSR → mesh
+The SD step generates COLORFUL 3D RENDER images (like game assets).
+TripoSR's DINOv2 encoder extracts rich features from colorful images.
+Gray clay was WRONG — TripoSR was trained on colorful Objaverse renders.
+Texturing can be enhanced separately in Phase 2.
 """
 import torch
 import gc
@@ -11,9 +17,8 @@ from diffusers import (
     StableDiffusionPipeline, 
     StableDiffusionXLPipeline,
     DPMSolverMultistepScheduler,
-    EulerAncestralDiscreteScheduler
 )
-from config import SDConfig, DEVICE, CACHE_DIR
+from config import SDConfig, ProcessingConfig, DEVICE, CACHE_DIR
 
 # Import GPU optimizer for automatic optimizations
 try:
@@ -68,9 +73,10 @@ class StableDiffusionGenerator:
             requires_safety_checker=False
         )
         
-        # Use DPM++ 2M scheduler for faster generation
+        # Use DPM++ 2M Karras scheduler — fast convergence, high quality
         self.sd15_pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-            self.sd15_pipe.scheduler.config
+            self.sd15_pipe.scheduler.config,
+            use_karras_sigmas=True
         )
         
         self.sd15_pipe = self.sd15_pipe.to(DEVICE)
@@ -108,9 +114,10 @@ class StableDiffusionGenerator:
             use_safetensors=True
         )
         
-        # Use Euler Ancestral for SDXL
-        self.sdxl_pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
-            self.sdxl_pipe.scheduler.config
+        # Use DPM++ 2M Karras for SDXL — better quality than Euler Ancestral
+        self.sdxl_pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+            self.sdxl_pipe.scheduler.config,
+            use_karras_sigmas=True
         )
         
         self.sdxl_pipe = self.sdxl_pipe.to(DEVICE)
@@ -188,34 +195,34 @@ class StableDiffusionGenerator:
     
     _CATEGORY_QUALITY = {
         'character': (
-            "full body standing pose head to feet, "
-            "detailed face with eyes nose mouth, "
-            "solid thick proportions, collectible figurine"
+            "full body character, T-pose, arms slightly away from body, "
+            "thick solid limbs, symmetrical body, "
+            "clean simple design, solid colors, smooth surface"
         ),
         'creature': (
-            "full body powerful stance, "
-            "detailed face with eyes and teeth, "
-            "solid thick body, creature figurine"
+            "full body creature, neutral standing pose, "
+            "thick solid body, chunky proportions, "
+            "clean simple design, solid colors, smooth surface"
         ),
         'vehicle': (
-            "complete vehicle all angles visible, "
-            "detailed panels wheels windows, "
-            "solid connected parts, die-cast model"
+            "complete vehicle, all panels connected, "
+            "thick solid panels, simple shapes, "
+            "clean simple design, solid colors, smooth surface"
         ),
         'building': (
-            "complete solid architecture, "
-            "detailed walls windows roof, "
-            "architectural scale model"
+            "complete building, thick solid walls, "
+            "simple block shapes, clean design, "
+            "solid colors, smooth surface"
         ),
         'weapon': (
-            "complete weapon fully visible, "
-            "detailed blade and handle, "
-            "solid chunky proportions, prop replica"
+            "complete weapon centered in frame, "
+            "thick solid blade, chunky proportions, "
+            "clean simple design, solid colors, smooth surface"
         ),
         'prop': (
-            "complete solid object, "
-            "detailed surface and textures, "
-            "clearly defined shape, miniature model"
+            "complete solid object, simple shapes, "
+            "thick proportions, clean design, "
+            "solid colors, smooth surface"
         ),
     }
 
@@ -231,54 +238,221 @@ class StableDiffusionGenerator:
             return max(scores, key=scores.get)
         return 'prop'  # default fallback
 
-    def _build_3d_prompt(self, user_prompt: str, mode: str = "fast") -> str:
+    def _safe_encode_sd15(self, prompt: str, negative_prompt: str):
         """
-        Build an EXTREMELY detailed prompt optimized for TripoSR reconstruction.
+        Manually encode prompts for SD 1.5 using CLIP tokenizer with
+        explicit truncation=True and max_length=77.
         
-        KEY INSIGHT: TripoSR needs images that look like RENDERS OF SOLID 3D OBJECTS.
-        The #1 cause of holes is ambiguous depth cues in the SD-generated image.
+        Returns (prompt_embeds, negative_prompt_embeds) tensors.
         
-        What works best:
-        - STRONG directional lighting with clear shadows ON the object
-        - Three-quarter elevated view (TripoSR training data angle)
-        - SOLID, CHUNKY, THICK proportions (thin parts = holes)
-        - HIGH CONTRAST between light and shadow sides
-        - SMOOTH, SIMPLE surfaces (not overly detailed textures)
-        - Clean gray/white background for rembg
-        - Object looks like a CLAY/RESIN figure or game asset
+        This BYPASSES the pipeline's internal tokenizer path, preventing
+        IndexError when prompts exceed 77 tokens. CLIP's tokenizer keeps
+        the first 75 meaningful tokens (+ BOS + EOS = 77), so putting the
+        subject and key modifiers FIRST in the prompt preserves quality.
+        """
+        pipe = self.sd15_pipe
+        device = pipe.device
+        max_len = pipe.tokenizer.model_max_length  # Should be 77
+        
+        # Tokenize + encode POSITIVE prompt
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=max_len,
+            truncation=True,
+            return_tensors="pt"
+        )
+        token_count = (text_inputs.input_ids != pipe.tokenizer.pad_token_id).sum().item()
+        if token_count >= max_len:
+            print(f"  ⚠️ Positive prompt uses all {max_len} tokens (some text truncated, subject preserved)")
+        else:
+            print(f"  📊 Positive prompt: {token_count}/{max_len} tokens")
+        
+        prompt_embeds = pipe.text_encoder(
+            text_inputs.input_ids.to(device)
+        )[0]
+        
+        # Tokenize + encode NEGATIVE prompt
+        uncond_inputs = pipe.tokenizer(
+            negative_prompt,
+            padding="max_length",
+            max_length=max_len,
+            truncation=True,
+            return_tensors="pt"
+        )
+        negative_prompt_embeds = pipe.text_encoder(
+            uncond_inputs.input_ids.to(device)
+        )[0]
+        
+        return prompt_embeds, negative_prompt_embeds
+    
+    def _ensure_sdxl_tokenizer_limits(self):
+        """
+        Ensure SDXL's dual tokenizers have correct max_length set.
+        This prevents IndexError when prompts exceed CLIP's 77-token limit.
+        The pipeline's internal encode_prompt() uses these values for truncation.
+        """
+        pipe = self.sdxl_pipe
+        if pipe.tokenizer.model_max_length != 77:
+            pipe.tokenizer.model_max_length = 77
+        if hasattr(pipe, 'tokenizer_2') and pipe.tokenizer_2 is not None:
+            if pipe.tokenizer_2.model_max_length != 77:
+                pipe.tokenizer_2.model_max_length = 77
+
+    def _detect_pose(self, prompt: str) -> str:
+        """
+        Detect if the user explicitly requested a specific pose.
+        Returns a strong pose instruction to prepend to the prompt, or empty string.
+        
+        CLIP processes tokens LEFT-TO-RIGHT — first tokens have highest weight.
+        So we put pose instructions FIRST when the user explicitly requests a pose.
+        """
+        prompt_lower = prompt.lower()
+        
+        if 't-pose' in prompt_lower or 't pose' in prompt_lower or 'tpose' in prompt_lower:
+            return "T-pose, standing straight with arms extended horizontally to the sides, "
+        elif 'a-pose' in prompt_lower or 'a pose' in prompt_lower or 'apose' in prompt_lower:
+            return "A-pose, standing straight with arms angled 45 degrees downward from shoulders, "
+        elif 'idle' in prompt_lower and ('pose' in prompt_lower or 'stand' in prompt_lower):
+            return "idle standing pose, relaxed posture, "
+        
+        return ""
+
+    def _build_3d_prompt(self, user_prompt: str, mode: str = "fast", view: str = None) -> str:
+        """
+        Build a 3D RENDER prompt optimized for TripoSR reconstruction.
+        
+        Structure: {pose_override}, {subject}, {category_style}, {base_3d_prompt}, {view_angle}
+        
+        Key insight (from YouTube/official demos): TripoSR works BEST with
+        colorful, well-lit 3D renders — NOT gray clay. The DINOv2 encoder
+        extracts MORE features from colorful images.
         """
         user_prompt = user_prompt.strip().rstrip('.')
         category = self._classify_object(user_prompt)
         cat_quality = self._CATEGORY_QUALITY.get(category, self._CATEGORY_QUALITY['prop'])
         
+        # Detect explicit pose request
+        pose_prefix = self._detect_pose(user_prompt)
+        
+        # If user requested a specific pose, adjust the category quality string
+        if pose_prefix:
+            print(f"  🕺 Pose detected: {pose_prefix.strip().rstrip(',')}")
+            # Replace the default T-pose instruction in character category
+            if 'T-pose' in cat_quality and 'a-pose' in pose_prefix.lower():
+                cat_quality = cat_quality.replace(
+                    "T-pose, arms slightly away from body",
+                    "A-pose, arms angled 45 degrees down from shoulders"
+                )
+            elif 'T-pose' not in pose_prefix and 'T-pose' in cat_quality:
+                # Remove default T-pose if user wants something else
+                cat_quality = cat_quality.replace("T-pose, arms slightly away from body, ", "")
+        
         print(f"  🏷️ Object category: {category}")
         
-        if mode == "quality":
-            # SDXL: 154 token limit — can be detailed
-            enhanced = (
-                f"a highly detailed 3D figurine of {user_prompt}, "
-                f"three-quarter view from slightly above, "
-                f"single object centered on plain gray background, "
-                f"strong directional lighting from upper left with clear shadows on the surface, "
-                f"solid thick proportions, no holes or gaps, complete figure, "
-                f"smooth clean surface like premium resin collectible, "
-                f"{cat_quality}, "
-                f"sharp focus, physically based rendering, octane render, 8K detail, "
-                f"professional product photography, game asset"
-            )
-        else:
-            # SD 1.5: 77 token limit — must be concise!
-            enhanced = (
-                f"3D figurine of {user_prompt}, "
-                f"three-quarter view from above, gray background, "
-                f"strong directional lighting, clear shadows, "
-                f"solid thick proportions, no holes, smooth surface, "
-                f"{cat_quality}, "
-                f"sharp focus, PBR render, product photo"
-            )
+        # View angle modifier
+        view_modifier = ""
+        if view and view in SDConfig.VIEW_PROMPTS:
+            view_modifier = f", {SDConfig.VIEW_PROMPTS[view]}"
         
-        print(f"  📝 Enhanced prompt: {enhanced[:180]}...")
+        # 3D render prompt: {pose}, {subject}, {category style}, {base 3D}, {view}
+        # Pose goes FIRST because CLIP gives highest weight to early tokens
+        enhanced = (
+            f"{pose_prefix}"
+            f"{user_prompt}, "
+            f"{cat_quality}, "
+            f"{SDConfig.BASE_3D_PROMPT}"
+            f"{view_modifier}"
+        )
+        
+        print(f"  📝 Enhanced prompt: {enhanced[:200]}...")
         return enhanced
+
+    def generate_multiview(
+        self,
+        prompt: str,
+        mode: str = "fast",
+        seed: int = None,
+        views: list = None
+    ) -> dict:
+        """
+        Generate multiple views of the same object for better 3D reconstruction.
+        
+        Uses the SAME seed across all views to maintain consistency.
+        Each view adds a camera angle modifier to the prompt.
+        
+        Returns: dict mapping view_name -> PIL Image
+        """
+        if views is None:
+            views = list(SDConfig.VIEW_PROMPTS.keys())
+        
+        if seed is None:
+            import random
+            seed = random.randint(0, 2**31 - 1)
+        
+        print(f"\n📷 Generating {len(views)} views (seed: {seed})")
+        
+        results = {}
+        neg_prompt = SDConfig.NEGATIVE_PROMPT
+        
+        for view_name in views:
+            print(f"\n  📸 View: {view_name}")
+            enhanced_prompt = self._build_3d_prompt(prompt, mode, view=view_name)
+            
+            # Use same seed for consistency across views
+            generator = torch.Generator(device=DEVICE).manual_seed(seed)
+            
+            if mode == "quality":
+                self._load_sdxl()
+                if self.sd15_pipe is not None:
+                    del self.sd15_pipe
+                    self.sd15_pipe = None
+                    torch.cuda.empty_cache() if DEVICE == "cuda" else None
+                
+                self._ensure_sdxl_tokenizer_limits()
+                
+                with torch.inference_mode():
+                    img = self.sdxl_pipe(
+                        prompt=enhanced_prompt,
+                        negative_prompt=neg_prompt,
+                        num_inference_steps=SDConfig.SDXL_STEPS,
+                        guidance_scale=SDConfig.SDXL_GUIDANCE,
+                        height=SDConfig.SDXL_RESOLUTION,
+                        width=SDConfig.SDXL_RESOLUTION,
+                        generator=generator
+                    ).images[0]
+                
+                # Downscale SDXL 1024→512 for TripoSR compatibility
+                triposr_size = ProcessingConfig.TARGET_SIZE  # 512
+                if img.size[0] > triposr_size or img.size[1] > triposr_size:
+                    img = img.resize((triposr_size, triposr_size), Image.Resampling.LANCZOS)
+            else:
+                self._load_sd15()
+                if self.sdxl_pipe is not None:
+                    del self.sdxl_pipe
+                    self.sdxl_pipe = None
+                    torch.cuda.empty_cache() if DEVICE == "cuda" else None
+                
+                prompt_embeds, negative_prompt_embeds = self._safe_encode_sd15(
+                    enhanced_prompt, neg_prompt
+                )
+                
+                with torch.inference_mode():
+                    img = self.sd15_pipe(
+                        prompt_embeds=prompt_embeds,
+                        negative_prompt_embeds=negative_prompt_embeds,
+                        num_inference_steps=SDConfig.SD15_STEPS,
+                        guidance_scale=SDConfig.SD15_GUIDANCE,
+                        height=SDConfig.SD15_RESOLUTION,
+                        width=SDConfig.SD15_RESOLUTION,
+                        generator=generator
+                    ).images[0]
+            
+            results[view_name] = img
+            print(f"    ✓ {view_name} generated")
+        
+        print(f"  ✓ All {len(results)} views generated")
+        return results
         
     def generate(
         self,
@@ -321,18 +495,28 @@ class StableDiffusionGenerator:
                 self.sd15_pipe = None
                 torch.cuda.empty_cache() if DEVICE == "cuda" else None
             
-            print(f"🎨 Generating with SDXL ({SDConfig.SDXL_RESOLUTION}px, {SDConfig.SDXL_STEPS} steps)...")
+            # Ensure SDXL tokenizers truncate properly (prevents IndexError)
+            self._ensure_sdxl_tokenizer_limits()
+            
+            print(f"🎨 Generating with SDXL ({SDConfig.SDXL_RESOLUTION}px, {SDConfig.SDXL_STEPS} steps, cfg={SDConfig.SDXL_GUIDANCE})...")
             
             with torch.inference_mode():
                 result = self.sdxl_pipe(
                     prompt=enhanced_prompt,
                     negative_prompt=neg_prompt,
                     num_inference_steps=SDConfig.SDXL_STEPS,
-                    guidance_scale=SDConfig.GUIDANCE_SCALE,
+                    guidance_scale=SDConfig.SDXL_GUIDANCE,
                     height=SDConfig.SDXL_RESOLUTION,
                     width=SDConfig.SDXL_RESOLUTION,
                     generator=generator
                 ).images[0]
+            
+            # SDXL generates at 1024px but TripoSR was trained on 512x512.
+            # Downscale to 512 for optimal TripoSR reconstruction quality.
+            triposr_size = ProcessingConfig.TARGET_SIZE  # 512
+            if result.size[0] > triposr_size or result.size[1] > triposr_size:
+                print(f"  📐 Resizing SDXL output {result.size[0]}→{triposr_size}px (TripoSR training resolution)")
+                result = result.resize((triposr_size, triposr_size), Image.Resampling.LANCZOS)
                 
         else:
             # Use SD 1.5 (fast mode)
@@ -344,14 +528,19 @@ class StableDiffusionGenerator:
                 self.sdxl_pipe = None
                 torch.cuda.empty_cache() if DEVICE == "cuda" else None
             
-            print(f"🎨 Generating with SD 1.5 ({SDConfig.SD15_RESOLUTION}px, {SDConfig.SD15_STEPS} steps)...")
+            print(f"🎨 Generating with SD 1.5 ({SDConfig.SD15_RESOLUTION}px, {SDConfig.SD15_STEPS} steps, cfg={SDConfig.SD15_GUIDANCE})...")
+            
+            # Manually encode prompts (bypasses buggy tokenizer path)
+            prompt_embeds, negative_prompt_embeds = self._safe_encode_sd15(
+                enhanced_prompt, neg_prompt
+            )
             
             with torch.inference_mode():
                 result = self.sd15_pipe(
-                    prompt=enhanced_prompt,
-                    negative_prompt=neg_prompt,
+                    prompt_embeds=prompt_embeds,
+                    negative_prompt_embeds=negative_prompt_embeds,
                     num_inference_steps=SDConfig.SD15_STEPS,
-                    guidance_scale=SDConfig.GUIDANCE_SCALE,
+                    guidance_scale=SDConfig.SD15_GUIDANCE,
                     height=SDConfig.SD15_RESOLUTION,
                     width=SDConfig.SD15_RESOLUTION,
                     generator=generator
@@ -367,9 +556,17 @@ sd_generator = StableDiffusionGenerator()
 
 def text_to_image(prompt: str, mode: str = "fast", seed: int = None) -> Image.Image:
     """
-    Convenience function for text to image generation
+    Convenience function for text to image generation (single view)
     """
     return sd_generator.generate(prompt, mode, seed)
+
+
+def text_to_multiview(prompt: str, mode: str = "fast", seed: int = None, views: list = None) -> dict:
+    """
+    Convenience function for multi-view generation.
+    Returns dict: {view_name: PIL Image}
+    """
+    return sd_generator.generate_multiview(prompt, mode, seed, views)
 
 
 if __name__ == "__main__":

@@ -44,7 +44,7 @@ import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
 import AvatarModal, { getAvatarById } from "./Components/AvatarModal";
 import { LogoIcon } from "./Components/Logo";
 import FeatureTooltip, { FEATURE_DESCRIPTIONS } from "./Components/FeatureTooltip";
-import { genTextTo3D, genTextTo3DBatch, genImageTo3D, checkAIHealth, updateModelType, updateModelVariant } from "./api/generate";
+import { genTextTo3D, genTextTo3DBatch, genImageTo3D, checkAIHealth, updateModelType, updateModelVariant, applyModelTexture } from "./api/generate";
 import { updateProfile } from "./api/auth";
 import { useAuth } from "./contexts/AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
@@ -199,17 +199,23 @@ export default function GeneratePage() {
   const [isRigConfigured, setIsRigConfigured] = useState(false);
   const [rigConfig, setRigConfig] = useState(null);
   const [isRigging, setIsRigging] = useState(false);
+  const [riggedModelPath, setRiggedModelPath] = useState(null); // Path to rigged GLB for animation
   // Animation states
   const [showAnimationPanel, setShowAnimationPanel] = useState(false);
   const [currentAnimation, setCurrentAnimation] = useState(null);
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(false);
+  // SD Image Preview state
+  const [previewImageUrl, setPreviewImageUrl] = useState(null);
+  const [previewImageTitle, setPreviewImageTitle] = useState("");
   // Phase 2 API status
   const [phase2Available, setPhase2Available] = useState(false);
   // GPU enabled status
   const [gpuEnabled, setGpuEnabled] = useState(false);
+  // Apply Hunyuan3D texture state
+  const [isApplyingHunyuanTexture, setIsApplyingHunyuanTexture] = useState(false);
   
   // Global processing flag — disable ALL controls when ANY operation is running
-  const isAnyProcessing = isGenerating || isTexturing || isRigging || isRemeshing;
+  const isAnyProcessing = isGenerating || isTexturing || isRigging || isRemeshing || isApplyingHunyuanTexture;
   
   // Avatar functions
   const handleAvatarChange = async (newAvatar) => {
@@ -503,50 +509,85 @@ export default function GeneratePage() {
     if (!selectedGeneratedModel) return;
     
     try {
+      // Use backend API to save model to MongoDB (persistent storage)
+      const { createModel } = await import('./api/models.js');
       
-      const existingModels = JSON.parse(localStorage.getItem("pv_my_models") || "[]");
-      
-      const savedModel = {
-        id: Date.now(),
-        name: selectedGeneratedModel.name || "Uploaded Model",
+      const result = await createModel({
+        name: selectedGeneratedModel.name || prompt || "Untitled Model",
+        type: selectedGeneratedModel.isUploaded ? "uploaded" : (activeTab === "image" ? "image-to-3d" : "text-to-3d"),
+        prompt: prompt || "",
         modelUrl: selectedGeneratedModel.modelUrl,
-        thumbnailUrl: null,
-        author: user?.name || user?.email || "Anonymous",
-        authorId: user?._id,
-        isUploaded: selectedGeneratedModel.isUploaded || false,
-        fileType: selectedGeneratedModel.fileType,
-        createdAt: new Date().toISOString()
-      };
+        thumbnailUrl: selectedGeneratedModel.imageUrl || selectedGeneratedModel.thumbnailUrl || null,
+      });
       
-      existingModels.unshift(savedModel);
-      localStorage.setItem("pv_my_models", JSON.stringify(existingModels));
-      
-      alert("Model saved to My Storage!");
+      if (result.model || result.msg === "Model saved successfully") {
+        alert("✅ Model saved to My Storage!");
+      } else {
+        throw new Error(result.msg || "Save failed");
+      }
     } catch (err) {
-      alert("An error occurred while saving");
+      console.error("Save to storage error:", err);
+      // Fallback: save to localStorage if backend is unavailable
+      try {
+        const existingModels = JSON.parse(localStorage.getItem("pv_my_models") || "[]");
+        existingModels.unshift({
+          id: Date.now(),
+          name: selectedGeneratedModel.name || "Model",
+          modelUrl: selectedGeneratedModel.modelUrl,
+          thumbnailUrl: null,
+          author: user?.name || user?.email || "Anonymous",
+          createdAt: new Date().toISOString()
+        });
+        localStorage.setItem("pv_my_models", JSON.stringify(existingModels));
+        alert("Model saved locally (backend unavailable)");
+      } catch (localErr) {
+        alert("Error saving model: " + err.message);
+      }
     }
   };
   
  
+  // Detect model type from text for rigging compatibility
+  const detectModelTypeFromText = (text) => {
+    const t = (text || "").toLowerCase();
+    
+    // Humanoid keywords (highest priority for rigging)
+    const humanoidWords = [
+      "character", "person", "man", "woman", "girl", "boy", "human",
+      "knight", "warrior", "wizard", "soldier", "hero", "villain",
+      "robot", "android", "droid", "bot", "mech",
+      "elf", "dwarf", "orc", "pirate", "ninja", "samurai",
+      "princess", "prince", "king", "queen", "mage", "archer",
+      "chibi", "anime", "figure", "humanoid",
+    ];
+    // Quadruped keywords
+    const quadrupedWords = [
+      "dog", "cat", "horse", "lion", "wolf", "fox", "bear",
+      "deer", "elephant", "tiger", "creature", "beast", "animal",
+      "dragon", "monster", "dinosaur", "unicorn", "quadruped",
+      "puppy", "kitten", "pony", "bunny", "rabbit",
+    ];
+    // Weapon keywords
+    const weaponWords = ["sword", "blade", "axe", "hammer", "bow", "staff", "wand", "spear", "dagger", "gun", "weapon", "shield"];
+    // Vehicle keywords
+    const vehicleWords = ["car", "truck", "tank", "ship", "airplane", "spaceship", "motorcycle", "vehicle", "mech"];
+    
+    for (const w of humanoidWords) { if (t.includes(w)) return "humanoid"; }
+    for (const w of quadrupedWords) { if (t.includes(w)) return "quadruped"; }
+    for (const w of weaponWords) { if (t.includes(w)) return "sword"; }
+    for (const w of vehicleWords) { if (t.includes(w)) return "car"; }
+    return "humanoid"; // default: assume humanoid (most common for rigging)
+  };
+
   const generateModelVariants = (baseModel, isImageMode = false) => {
     // Check if we have a real AI-generated model with a URL
     const hasRealModel = baseModel?.modelUrl && baseModel.modelUrl.startsWith('http');
     
-    let modelType = "robot"; 
-    
+    let modelType;
     if (isImageMode && uploadedFile) {
-      const fileName = uploadedFile.name.toLowerCase();
-      if (fileName.includes("sword") || fileName.includes("blade")) modelType = "sword";
-      else if (fileName.includes("cat") || fileName.includes("kitten")) modelType = "cat";
-      else if (fileName.includes("car") || fileName.includes("vehicle")) modelType = "car";
-      else if (fileName.includes("robot") || fileName.includes("bot")) modelType = "robot";
-      else modelType = "robot";
+      modelType = detectModelTypeFromText(uploadedFile.name);
     } else {
-      const promptLower = prompt.toLowerCase();
-      if (promptLower.includes("sword") || promptLower.includes("blade")) modelType = "sword";
-      else if (promptLower.includes("cat") || promptLower.includes("kitten")) modelType = "cat";
-      else if (promptLower.includes("car") || promptLower.includes("vehicle")) modelType = "car";
-      else if (promptLower.includes("robot") || promptLower.includes("bot") || promptLower.includes("droid")) modelType = "robot";
+      modelType = detectModelTypeFromText(prompt);
     }
     
     const dbId = baseModel?._id;
@@ -609,49 +650,58 @@ export default function GeneratePage() {
     const aiModel = AI_MODELS.find(m => m.id === selectedModel);
     const qualityMode = aiModel?.backend || "fast";
     
+    // AbortController for user cancellation
+    const abortController = new AbortController();
+    // Store ref so Retry can work
+    window.__currentGenerationAbort = abortController;
+    
     try {
       if (activeMode === "text-to-3d") {
         if (!prompt.trim()) {
           throw new Error("Please enter a description for your 3D model");
         }
         
-        setGenerationStep("Generating 4 variants...");
-        setProgress(5);
+        setGenerationStep("Starting generation...");
+        setProgress(2);
         
-        const progressInterval = setInterval(() => {
-          setProgress(prev => {
-            if (prev < 90) return prev + Math.random() * 5;
-            return prev;
-          });
-        }, 3000);
+        const detectedType = detectModelTypeFromText(prompt);
         
-        // Use batch endpoint to generate 4 real variants with different seeds
-        const result = await genTextTo3DBatch(prompt, qualityMode, 4);
-        clearInterval(progressInterval);
+        // Map AI service step names to user-friendly messages
+        const stepMessages = {
+          'queued': '⏳ Queued...',
+          'generating-image-1': '🎨 Creating concept art...',
+          'processing-variant-1': '🔮 Building 3D model & texture...',
+        };
+        
+        // Generate 1 high-quality variant with full texture
+        const result = await genTextTo3DBatch(prompt, qualityMode, 1, {
+          abortSignal: abortController.signal,
+          pollInterval: 3000,
+          onProgress: (status) => {
+            // Update progress bar based on real AI service progress
+            const realProgress = Math.max(status.progress || 0, 2);
+            setProgress(Math.min(realProgress, 99));
+            
+            // Update generation step text with friendly names
+            const friendlyStep = stepMessages[status.step] || status.step;
+            if (friendlyStep) {
+              setGenerationStep(friendlyStep);
+            }
+            
+          }
+        });
         
         if (!result.ok) {
           throw new Error(result.msg || "Generation failed");
         }
         
         setProgress(100);
-        setGenerationStep("Complete!");
+        setGenerationStep("✅ Complete!");
         
-        // Build variants from batch result - each has a DIFFERENT model URL
-        const variants = (result.variants || []).map((v, index) => ({
-          id: `${result.modelId || Date.now()}-${index + 1}`,
-          dbId: result.modelId,
-          variant: v.variant || index + 1,
-          selected: false,
-          modelType: "generated",
-          isDemo: false,
-          modelUrl: v.modelUrl,
-          thumbnailUrl: v.imageUrl,
-          seed: v.seed,
-          name: `${prompt} - Variant ${v.variant || index + 1}`
-        }));
-        
-        // Fallback: if batch failed or returned 0 variants, try single generation
-        if (variants.length === 0) {
+        // Build model from completed result (single variant, full quality)
+        const v = result.variants?.[0];
+        if (!v) {
+          // Fallback: try single sync endpoint
           const singleResult = await genTextTo3D(prompt, qualityMode);
           if (singleResult.ok && singleResult.model) {
             const fallbackVariants = generateModelVariants(singleResult.model, false);
@@ -659,11 +709,26 @@ export default function GeneratePage() {
             setSelectedGeneratedModel(fallbackVariants[0]);
             return;
           }
-          throw new Error("No variants were generated");
+          throw new Error("No model was generated");
         }
         
-        setGeneratedModels(variants);
-        setSelectedGeneratedModel(variants[0]);
+        const generatedModel = {
+          id: `${result.modelId || Date.now()}-1`,
+          dbId: result.modelId,
+          variant: 1,
+          selected: false,
+          modelType: detectedType,
+          isDemo: false,
+          modelUrl: v.modelUrl,
+          thumbnailUrl: v.imageUrl,
+          previewUrl: v.previewUrl || null,
+          seed: v.seed,
+          prompt: prompt,
+          name: `${prompt}`
+        };
+        
+        setGeneratedModels([generatedModel]);
+        setSelectedGeneratedModel(generatedModel);
         
       } else {
         if (!uploadedFile) {
@@ -702,7 +767,7 @@ export default function GeneratePage() {
             dbId: baseModel?._id, 
             variant: 1, 
             selected: false,
-            modelType: "generated",
+            modelType: "uploaded",
             isDemo: !hasRealModel,
             name: `Image to 3D - Variant 1`
           }
@@ -893,6 +958,67 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
     }
   };
 
+  // Handle applying Hunyuan3D-Paint texture to selected variant
+  const handleApplyHunyuanTexture = async (model) => {
+    if (!model || !model.modelUrl || isApplyingHunyuanTexture) return;
+    
+    setIsApplyingHunyuanTexture(true);
+    setGenerationStep("Applying Hunyuan3D texture...");
+    setProgress(10);
+    
+    try {
+      // Extract the AI-service relative path from the full URL
+      // modelUrl is like "http://localhost:8000/outputs/xxx_v0.glb"
+      const urlObj = new URL(model.modelUrl);
+      const modelPath = urlObj.pathname; // "/outputs/xxx_v0.glb"
+      
+      // Also get preprocessed image path for texture guidance
+      let preprocessedImage = null;
+      if (model.preprocessedUrl) {
+        const prepUrlObj = new URL(model.preprocessedUrl);
+        preprocessedImage = prepUrlObj.pathname;
+      }
+      
+      const progressInterval = setInterval(() => {
+        setProgress(prev => prev < 90 ? prev + Math.random() * 3 : prev);
+      }, 5000);
+      
+      const result = await applyModelTexture(modelPath, preprocessedImage);
+      clearInterval(progressInterval);
+      
+      if (result.ok && result.texturedModelUrl) {
+        setProgress(100);
+        setGenerationStep("Texture applied!");
+        
+        // Update the model's URL to the textured version
+        const updatedModel = {
+          ...model,
+          modelUrl: result.texturedModelUrl,
+          hasHunyuanTexture: true
+        };
+        
+        // Update in the generatedModels array
+        setGeneratedModels(prev => prev.map(m => 
+          m.id === model.id ? updatedModel : m
+        ));
+        setSelectedGeneratedModel(updatedModel);
+        
+        console.log(`✅ Hunyuan3D texture applied in ${result.elapsed?.toFixed(1)}s`);
+      } else {
+        throw new Error(result.msg || "Texture application failed");
+      }
+      
+    } catch (err) {
+      setError(err.message || "Failed to apply texture");
+    } finally {
+      setIsApplyingHunyuanTexture(false);
+      setTimeout(() => {
+        setProgress(0);
+        setGenerationStep("");
+      }, 2000);
+    }
+  };
+
   // ============ PHASE 2 HANDLERS ============
   
   // Handle double-click on variant to focus
@@ -946,95 +1072,46 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
     // Get model path
     const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
     
+    // For GLB format: try direct download first (fastest path)
+    if (format === "glb" && modelPath) {
+      try {
+        await downloadModelFile(modelPath, `${safeFileName}.glb`);
+        setShowDownloadMenu(false);
+        return;
+      } catch (err) {
+        console.warn("Direct GLB download failed, trying export API:", err.message);
+      }
+    }
+    
     try {
-      // Try to use Phase 2 API for export with animation and rig data
+      // Use Phase 2 Export API for format conversion (OBJ, STL, etc.)
       const exportResult = await exportModel(modelPath, format);
       
       if ((exportResult.success || exportResult.ok) && exportResult.download_url) {
-        // Download from server
+        // Download the exported file
         await downloadModelFile(exportResult.download_url, `${safeFileName}.${format}`);
         setShowDownloadMenu(false);
         return;
       }
+      
+      // If export returned an error message, show it
+      if (exportResult.error) {
+        alert(`Export failed: ${exportResult.error}`);
+        setShowDownloadMenu(false);
+        return;
+      }
     } catch (err) {
-      console.warn("Export API not available, using demo mode:", err.message);
+      console.warn("Export API error:", err.message);
     }
     
-    // Fallback to demo mode - create appropriate content based on format
-    let content = "";
-    let mimeType = "text/plain";
-    let extension = format;
-    
-    // Add rig and animation info to export
-    const rigInfo = isRigConfigured ? `# Rig Type: ${rigConfig?.type || 'humanoid'}\n` : "";
-    const animInfo = currentAnimation ? `# Animation: ${currentAnimation}\n` : "";
-    
-    if (format === "obj") {
-      content = `# 3D Model exported from Polyva
-# Model: ${modelName}
-# Topology: ${currentTopology}
-${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
-# 
-# Demo cube vertices
-v -0.5 -0.5 0.5
-v 0.5 -0.5 0.5
-v -0.5 0.5 0.5
-v 0.5 0.5 0.5
-v -0.5 0.5 -0.5
-v 0.5 0.5 -0.5
-v -0.5 -0.5 -0.5
-v 0.5 -0.5 -0.5
-# Faces
-f 1 2 4 3
-f 3 4 6 5
-f 5 6 8 7
-f 7 8 2 1
-f 2 8 6 4
-f 7 1 3 5
-`;
-    } else if (format === "fbx") {
-      // FBX header with animation info
-      content = `; FBX 7.5.0 project file
-; Polyva 3D Export
-; Model: ${modelName}
-; Topology: ${currentTopology}
-${rigInfo}${animInfo}; Generated: ${new Date().toISOString()}
-;
-; This is a demo FBX file header.
-; Real export includes mesh, materials, skeleton, and animation data.
-; Compatible with: Unity, Unreal Engine, Blender, Maya, 3ds Max
-`;
-    } else if (format === "blend") {
-      content = `# Blender Export from Polyva
-# Model: ${modelName}
-# Topology: ${currentTopology}
-${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
-#
-# This is a placeholder. Real export is a binary .blend file.
-# Contains: Mesh, Materials, Armature (if rigged), Animations
-`;
-    } else {
-      content = `# Polyva 3D Model
-# Format: ${format.toUpperCase()}
-# Model: ${modelName}
-# Topology: ${currentTopology}
-${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
-# 
-# This is a demo file. Real export will contain actual 3D data.
-# Supported in: Unity, Unreal Engine, Blender, and other 3D software.
-`;
+    // Final fallback: try direct download for any format
+    try {
+      await downloadModelFile(modelPath, `${safeFileName}.${format}`);
+      setShowDownloadMenu(false);
+    } catch (err) {
+      alert(`Download failed: ${err.message}. Make sure the AI service is running.`);
+      setShowDownloadMenu(false);
     }
-    
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${safeFileName}.${extension}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setShowDownloadMenu(false);
   };
 
   // Handle Texturing
@@ -1140,15 +1217,37 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
         setIsRigConfigured(true);
         setShowRigPanel(false);
         
+        // Store rigged model path for animation API calls
+        // Prefer the URL-relative path (/outputs/...) for cross-service communication
+        const riggedPath = result.rigged_model_url || result.rigged_model_path || result.riggedModelPath;
+        if (riggedPath) {
+          setRiggedModelPath(riggedPath);
+          console.log("✅ Rigged model path stored:", riggedPath);
+          
+          // Build full URL for the rigged model
+          const AI_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8000";
+          const riggedUrl = result.rigged_model_url 
+            ? `${AI_URL}${result.rigged_model_url}`
+            : result.rigged_model_path;
+          
+          // Update the focused variant with the rigged model URL
+          if (riggedUrl) {
+            const updatedModel = { ...selectedGeneratedModel, modelUrl: riggedUrl };
+            setSelectedGeneratedModel(updatedModel);
+            setFocusedVariant(updatedModel);
+            
+            // Also update in generatedModels array
+            setGeneratedModels(prev => prev.map(m => 
+              m.id === selectedGeneratedModel.id ? updatedModel : m
+            ));
+            console.log("✅ Model viewer updated with rigged model:", riggedUrl);
+          }
+        }
+        
         // Auto-open animation panel after successful rigging
         setTimeout(() => {
           setShowAnimationPanel(true);
         }, 300);
-        
-        // Update model path if new rigged model is returned
-        if (result.rigged_model_path || result.riggedModelPath) {
-          console.log("✅ Rigged model:", result.rigged_model_path || result.riggedModelPath);
-        }
       } else {
         throw new Error(result.error || "Rigging failed");
       }
@@ -1166,24 +1265,49 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
     // Apply animation via API if model is rigged
     if (isRigConfigured && selectedGeneratedModel) {
       try {
-        // Get model path
-        const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+        // Use rigged model path for animation (not the original model)
+        const modelPath = riggedModelPath 
+          || selectedGeneratedModel.modelUrl 
+          || `/outputs/${selectedGeneratedModel.id}.glb`;
         
-        console.log("Applying animation:", animation.id, "to model:", modelPath);
+        console.log("🎬 Applying animation:", animation.id, "to rigged model:", modelPath);
         const result = await applyAnimation(modelPath, animation.id);
         
         if (result.success || result.ok) {
-          console.log("✅ Animation applied:", result.animated_model_path || result.animatedModelPath);
-          // Auto play after selecting
+          const animatedPath = result.animated_model_path || result.animatedModelPath || result.animated_model_url;
+          console.log("✅ Animation applied:", animatedPath);
+          
+          // Build full URL for animated model
+          const AI_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8000";
+          const animatedUrl = result.animated_model_url
+            ? `${AI_URL}${result.animated_model_url}`
+            : animatedPath;
+          
+          if (animatedUrl) {
+            // Update model viewer with animated GLB (contains embedded animation)
+            const updatedModel = { ...selectedGeneratedModel, modelUrl: animatedUrl };
+            setSelectedGeneratedModel(updatedModel);
+            setFocusedVariant(updatedModel);
+            
+            // Update in generatedModels array
+            setGeneratedModels(prev => prev.map(m => 
+              m.id === selectedGeneratedModel.id ? updatedModel : m
+            ));
+            console.log("✅ Model viewer updated with animated model:", animatedUrl);
+          }
+          
+          // Start playing the animation
           setIsAnimationPlaying(true);
         } else {
           console.warn("Animation result:", result);
+          setError("Animation failed: " + (result.error || "Unknown error"));
         }
       } catch (err) {
-        console.warn("Animation in demo mode:", err.message);
-        // Still play animation in demo mode
-        setIsAnimationPlaying(true);
+        console.error("Animation error:", err.message);
+        setError("Animation error: " + err.message);
       }
+    } else {
+      setError("Please configure Rig before applying animations");
     }
   };
 
@@ -1698,6 +1822,23 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
               {/* Action buttons when model is generated - using icons only */}
               {generatedModels.length > 0 && !focusedVariant && (
                 <div className="flex items-center gap-1">
+                  {/* Apply Hunyuan3D Texture - only show for shape-only AI models */}
+                  {selectedGeneratedModel && !selectedGeneratedModel.isDemo && !selectedGeneratedModel.isUploaded && !selectedGeneratedModel.hasHunyuanTexture && (
+                    <button
+                      onClick={() => handleApplyHunyuanTexture(selectedGeneratedModel)}
+                      disabled={isAnyProcessing}
+                      title="Apply HD Texture (Hunyuan3D-Paint)"
+                      className={`px-3 py-2 ${theme === 'dark' ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500' : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400'} rounded-lg text-white text-xs font-medium transition-all disabled:opacity-50 flex items-center gap-1`}
+                    >
+                      {isApplyingHunyuanTexture ? <Loader2 size={14} className="animate-spin" /> : <Palette size={14} />}
+                      {isApplyingHunyuanTexture ? "Texturing..." : "HD Texture"}
+                    </button>
+                  )}
+                  {selectedGeneratedModel?.hasHunyuanTexture && (
+                    <span className={`px-2 py-1 text-[10px] ${theme === 'dark' ? 'bg-purple-900/30 text-purple-400' : 'bg-purple-100 text-purple-600'} rounded`}>
+                      ✓ HD Textured
+                    </span>
+                  )}
                   <button
                     onClick={handleSaveToStorage}
                     disabled={!selectedGeneratedModel}
@@ -1789,6 +1930,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                           onPaint={handlePaintModel}
                           wireframe={isWireframeEnabled}
                           brightness={brightness}
+                          playAnimation={isAnimationPlaying}
                         />
                       ) : (
                         <DemoModelPreview
@@ -1876,7 +2018,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                           transition={{ delay: index * 0.1 }}
                           onClick={() => !isAnyProcessing && handleSelectVariant(model)}
                           onDoubleClick={() => !isAnyProcessing && handleDoubleClickVariant(model)}
-                          className={`relative ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden ${isAnyProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'} transition-all ${
+                          className={`relative group ${theme === 'dark' ? 'bg-gray-900/50' : 'bg-white/70'} rounded-xl overflow-hidden ${isAnyProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'} transition-all ${
                             selectedGeneratedModel?.id === model.id
                               ? `ring-2 ${theme === 'dark' ? 'ring-lime-500' : 'ring-cyan-500'}`
                               : `hover:ring-1 ${theme === 'dark' ? 'hover:ring-white/20' : 'hover:ring-black/10'}`
@@ -1922,9 +2064,9 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                           </div>
                         )}
                         
-                        {/* Hover overlay with actions */}
-                        <div className={`absolute inset-0 bg-gradient-to-t ${theme === 'dark' ? 'from-black/60' : 'from-white/80'} via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity flex items-end p-4`}>
-                          <div className="flex gap-2">
+                        {/* Hover overlay with actions — pointer-events-none so 3D rotation works */}
+                        <div className={`absolute inset-0 bg-gradient-to-t ${theme === 'dark' ? 'from-black/60' : 'from-white/80'} via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex items-end p-4`}>
+                          <div className="flex gap-2 pointer-events-auto">
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1959,6 +2101,20 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
                             >
                               <Grid3X3 size={16} />
                             </button>
+                            {/* View SD-generated image for debugging */}
+                            {model.previewUrl && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPreviewImageUrl(model.previewUrl);
+                                  setPreviewImageTitle(`SD Image — Variant ${model.variant} (seed: ${model.seed || '?'})`);
+                                }}
+                                className={`p-2 ${theme === 'dark' ? 'bg-cyan-500/20' : 'bg-cyan-500/10'} backdrop-blur-sm rounded-lg ${theme === 'dark' ? 'hover:bg-cyan-500/40' : 'hover:bg-cyan-500/30'} transition-colors`}
+                                title="View SD Generated Image"
+                              >
+                                <Camera size={16} className="text-cyan-400" />
+                              </button>
+                            )}
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -2474,6 +2630,7 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
         theme={theme}
         modelType={selectedGeneratedModel?.modelType || "robot"}
         modelVariant={selectedGeneratedModel?.variant || 1}
+        modelUrl={selectedGeneratedModel?.modelUrl || null}
         modelPrompt={selectedGeneratedModel?.prompt || prompt}
       />
 
@@ -2491,6 +2648,56 @@ ${rigInfo}${animInfo}# Generated: ${new Date().toISOString()}
             isRigConfigured={isRigConfigured}
             theme={theme}
           />
+        )}
+      </AnimatePresence>
+
+      {/* SD Image Preview Modal */}
+      <AnimatePresence>
+        {previewImageUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+            onClick={() => setPreviewImageUrl(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className={`relative max-w-2xl w-full mx-4 ${theme === 'dark' ? 'bg-gray-900' : 'bg-white'} rounded-2xl overflow-hidden shadow-2xl`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className={`flex items-center justify-between px-4 py-3 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+                <div className="flex items-center gap-2">
+                  <Camera size={18} className="text-cyan-400" />
+                  <span className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                    {previewImageTitle || "SD Generated Image"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setPreviewImageUrl(null)}
+                  className={`p-1.5 rounded-lg ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} transition-colors`}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              {/* Image */}
+              <div className="p-4">
+                <img
+                  src={previewImageUrl}
+                  alt="SD Generated"
+                  className="w-full h-auto rounded-lg"
+                  style={{ maxHeight: '70vh', objectFit: 'contain' }}
+                />
+              </div>
+              {/* Footer hint */}
+              <div className={`px-4 py-2 text-xs ${theme === 'dark' ? 'text-gray-500 bg-gray-900/50' : 'text-gray-400 bg-gray-50'} text-center`}>
+                This is the image Stable Diffusion generated before TripoSR converted it to 3D
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

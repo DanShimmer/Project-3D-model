@@ -9,13 +9,15 @@ import {
   shareModel,
   unshareModel,
   getSharedModel,
+  getShowcaseModels,
   duplicateModel,
 } from "../controllers/model.controller";
 
 const router = express.Router();
 
-// Public endpoint for shared models
+// Public endpoints (no auth required)
 router.get("/shared/:shareToken", getSharedModel);
+router.get("/showcase", getShowcaseModels);
 
 // Protected endpoints (require authentication)
 router.use(authMiddleware);

@@ -95,7 +95,7 @@ class GPUOptimizer:
             # TripoSR settings
             "triposr": {
                 "chunk_size": 8192,  # Can use larger chunks
-                "mc_resolution": 256,
+                "mc_resolution": 256,  # 256: official default, proven quality
                 "batch_size": 1,
             },
             # Texturing settings

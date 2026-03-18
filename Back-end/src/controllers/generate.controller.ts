@@ -416,8 +416,11 @@ export const getJobStatus = async (req: Request, res: Response) => {
 };
 
 /**
- * Text to 3D Batch Generation (4 variants)
+ * Text to 3D Batch Generation (4 variants) — ASYNC
  * POST /api/generate/text-to-3d-batch
+ * 
+ * Starts batch generation and returns jobId immediately.
+ * Frontend polls GET /api/generate/batch-status/:jobId for progress.
  */
 export const textTo3DBatch = async (req: Request, res: Response) => {
   try {
@@ -455,7 +458,7 @@ export const textTo3DBatch = async (req: Request, res: Response) => {
       return res.json({ ok: true, jobId, isDemo: true, variants });
     }
 
-    // Call AI Service batch endpoint
+    // Start async batch generation on AI Service (returns immediately)
     try {
       const response = await axios.post(`${AI_SERVICE_URL}/api/text-to-3d-batch`, {
         prompt: trimmedPrompt,
@@ -463,36 +466,24 @@ export const textTo3DBatch = async (req: Request, res: Response) => {
         num_variants: Math.min(num_variants, 4),
         jobId
       }, {
-        timeout: 1800000 // 30 minutes timeout for batch (4 models)
+        timeout: 30000 // 30s timeout — AI service returns jobId immediately now
       });
 
       if (response.data.ok) {
-        // Save all variants to database
-        const variants = response.data.variants.map((v: any) => ({
-          ...v,
-          modelUrl: `${AI_SERVICE_URL}${v.modelPath}`,
-          imageUrl: `${AI_SERVICE_URL}${v.imageUrl}`
-        }));
-
-        // Save first variant as the primary model
-        const newModel = new Model({
+        // Store job info for later database save when polling completes
+        batchJobs.set(jobId, {
           userId,
-          name: `${trimmedPrompt.slice(0, 50)}${trimmedPrompt.length > 50 ? '...' : ''}`,
-          type: "text-to-3d",
           prompt: trimmedPrompt,
           mode,
-          modelUrl: variants[0].modelUrl,
-          thumbnailUrl: variants[0].imageUrl,
-          isPublic: false
+          num_variants: Math.min(num_variants, 4),
+          savedToDb: false
         });
-        await newModel.save();
 
         return res.json({
           ok: true,
           jobId,
-          modelId: newModel._id,
-          variants,
-          elapsed: response.data.elapsed
+          status: 'processing',
+          total_variants: response.data.total_variants || num_variants
         });
       } else {
         throw new Error(response.data.error || "AI Service error");
@@ -520,6 +511,84 @@ export const textTo3DBatch = async (req: Request, res: Response) => {
   }
 };
 
+// Track batch jobs for database persistence
+const batchJobs: Map<string, { userId: string; prompt: string; mode: string; num_variants: number; savedToDb: boolean; modelId?: string }> = new Map();
+
+/**
+ * Poll Batch Job Status
+ * GET /api/generate/batch-status/:jobId
+ * 
+ * Returns current progress + any completed variants from AI service.
+ */
+export const getBatchStatus = async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    
+    // Query AI service for live job status
+    const aiResponse = await axios.get(`${AI_SERVICE_URL}/api/job/${jobId}`, {
+      timeout: 10000
+    });
+    
+    if (!aiResponse.data.ok) {
+      return res.status(404).json({ ok: false, msg: "Job not found" });
+    }
+    
+    const jobData = aiResponse.data;
+    
+    // Prefix variant URLs with AI service URL
+    const variants = (jobData.variants || []).map((v: any) => ({
+      ...v,
+      modelUrl: `${AI_SERVICE_URL}${v.modelPath}`,
+      imageUrl: `${AI_SERVICE_URL}${v.imageUrl}`,
+      previewUrl: v.previewUrl ? `${AI_SERVICE_URL}${v.previewUrl}` : undefined,
+      preprocessedUrl: v.preprocessedUrl ? `${AI_SERVICE_URL}${v.preprocessedUrl}` : undefined
+    }));
+    
+    // When job completes, save to database (once)
+    const batchInfo = batchJobs.get(jobId);
+    if (jobData.status === 'completed' && batchInfo && !batchInfo.savedToDb && variants.length > 0) {
+      try {
+        const newModel = new Model({
+          userId: batchInfo.userId,
+          name: `${batchInfo.prompt.slice(0, 50)}${batchInfo.prompt.length > 50 ? '...' : ''}`,
+          type: "text-to-3d",
+          prompt: batchInfo.prompt,
+          mode: batchInfo.mode,
+          modelUrl: variants[0].modelUrl,
+          thumbnailUrl: variants[0].imageUrl,
+          isPublic: false
+        });
+        await newModel.save();
+        batchInfo.savedToDb = true;
+        batchInfo.modelId = newModel._id.toString();
+        console.log(`💾 Batch job ${jobId} saved to DB as model ${newModel._id}`);
+      } catch (dbErr: any) {
+        console.error(`⚠️ Failed to save batch to DB: ${dbErr.message}`);
+      }
+    }
+    
+    return res.json({
+      ok: true,
+      jobId,
+      status: jobData.status,
+      progress: jobData.progress || 0,
+      step: jobData.step || '',
+      variants_completed: jobData.variants_completed || 0,
+      total_variants: jobData.total_variants || 0,
+      variants,
+      elapsed: jobData.elapsed,
+      modelId: batchInfo?.modelId,
+      error: jobData.error
+    });
+
+  } catch (error: any) {
+    if (error.code === "ECONNREFUSED") {
+      return res.status(503).json({ ok: false, msg: "AI Service unavailable" });
+    }
+    return res.status(500).json({ ok: false, msg: error.message || "Status check failed" });
+  }
+};
+
 /**
  * Check AI Service Health
  * GET /api/generate/health
@@ -542,5 +611,46 @@ export const checkAIHealth = async (req: Request, res: Response) => {
         error: error.message
       }
     });
+  }
+};
+
+/**
+ * Apply Hunyuan3D-Paint Texture to Selected Variant
+ * POST /api/generate/apply-texture
+ * 
+ * Called after user picks their favourite shape-only variant.
+ * Adds high-quality texture via Hunyuan3D-Paint (~3 min).
+ */
+export const applyHunyuanTexture = async (req: Request, res: Response) => {
+  try {
+    const { modelPath, preprocessedImage } = req.body;
+    
+    if (!modelPath) {
+      return res.status(400).json({ ok: false, msg: "modelPath is required" });
+    }
+    
+    const response = await axios.post(`${AI_SERVICE_URL}/api/apply-texture`, {
+      modelPath,
+      preprocessedImage
+    }, {
+      timeout: 600000 // 10 min timeout for texture generation
+    });
+    
+    if (response.data.ok) {
+      return res.json({
+        ok: true,
+        texturedModelUrl: `${AI_SERVICE_URL}${response.data.texturedModelPath}`,
+        elapsed: response.data.elapsed
+      });
+    } else {
+      return res.status(500).json({ ok: false, msg: response.data.error || "Texture failed" });
+    }
+    
+  } catch (error: any) {
+    console.error("Apply texture error:", error.message);
+    if (error.code === "ECONNREFUSED") {
+      return res.status(503).json({ ok: false, msg: "AI Service unavailable" });
+    }
+    return res.status(500).json({ ok: false, msg: error.message || "Texture failed" });
   }
 };

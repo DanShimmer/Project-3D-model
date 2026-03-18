@@ -13,6 +13,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { DemoModelPreview } from "../DemoModels";
+import ModelViewer from "../ModelViewer";
 
 // Character types for rigging
 const CHARACTER_TYPES = [
@@ -117,9 +118,9 @@ const detectModelType = (modelType, prompt = "") => {
 
 // Check if model can be rigged
 const canRigModel = (modelType) => {
-  // These model types can be rigged
-  const riggableTypes = ["robot", "cat", "dog", "humanoid", "quadruped"];
-  return riggableTypes.includes(modelType) || modelType === "uploaded";
+  // These model types can be rigged — includes all AI-detected types
+  const riggableTypes = ["robot", "cat", "dog", "humanoid", "quadruped", "uploaded", "generated"];
+  return riggableTypes.includes(modelType);
 };
 
 export default function RigPanel({
@@ -242,6 +243,24 @@ export default function RigPanel({
     });
   };
 
+  // Pointer-based drag handlers (replaces Framer Motion drag to avoid transform compounding)
+  const handlePointerMove = (e) => {
+    if (!draggingMarker) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      handleMarkerDrag(draggingMarker, {
+        x: Math.max(0, Math.min(100, x)),
+        y: Math.max(0, Math.min(100, y))
+      });
+    }
+  };
+
+  const handlePointerUp = () => {
+    setDraggingMarker(null);
+  };
+
   const handleConfirm = () => {
     onConfirmRig({
       type: selectedType,
@@ -271,7 +290,11 @@ export default function RigPanel({
           {/* Left side - Model preview */}
           <div className="flex-1 bg-black/50 relative min-h-[500px] flex items-center justify-center">
             {/* Model preview with 3D model */}
-            <div className="relative w-full h-full" ref={canvasRef}>
+            <div className="relative w-full h-full" ref={canvasRef}
+                 onPointerMove={handlePointerMove}
+                 onPointerUp={handlePointerUp}
+                 onPointerLeave={handlePointerUp}
+            >
               {/* Detected type indicator */}
               {canRig && (
                 <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-2 bg-black/70 rounded-lg">
@@ -282,16 +305,25 @@ export default function RigPanel({
                 </div>
               )}
               
-              {/* 3D Model preview */}
+              {/* 3D Model preview — show actual model when URL available */}
               {canRig ? (
                 <div className="absolute inset-0">
-                  <DemoModelPreview
-                    modelType={modelType}
-                    variant={modelVariant}
-                    autoRotate={step === 1}
-                    showGrid={true}
-                    className="w-full h-full"
-                  />
+                  {modelUrl ? (
+                    <ModelViewer
+                      modelUrl={modelUrl}
+                      className="w-full h-full"
+                      autoRotate={step === 1}
+                      showControls={false}
+                    />
+                  ) : (
+                    <DemoModelPreview
+                      modelType={modelType}
+                      variant={modelVariant}
+                      autoRotate={step === 1}
+                      showGrid={true}
+                      className="w-full h-full"
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -311,24 +343,21 @@ export default function RigPanel({
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-lime-500/50" />
               )}
 
-              {/* Draggable markers */}
+              {/* Draggable markers — use pointer events for precise positioning */}
               {step === 2 && markers.map((marker) => (
-                <motion.div
+                <div
                   key={marker.id}
-                  drag
-                  dragMomentum={false}
-                  onDrag={(e, info) => {
-                    const rect = canvasRef.current?.getBoundingClientRect();
-                    if (rect) {
-                      const x = ((info.point.x - rect.left) / rect.width) * 100;
-                      const y = ((info.point.y - rect.top) / rect.height) * 100;
-                      handleMarkerDrag(marker.id, { x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
-                    }
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDraggingMarker(marker.id);
                   }}
-                  className="absolute w-8 h-8 -ml-4 -mt-4 cursor-move flex items-center justify-center"
+                  className="absolute w-8 h-8 -ml-4 -mt-4 cursor-move flex items-center justify-center select-none"
                   style={{
                     left: `${marker.position.x}%`,
                     top: `${marker.position.y}%`,
+                    touchAction: 'none',
+                    zIndex: draggingMarker === marker.id ? 20 : 10,
                   }}
                 >
                   <div
@@ -340,7 +369,7 @@ export default function RigPanel({
                   >
                     {marker.id.includes("-a") ? "A" : marker.id.includes("-b") ? "B" : ""}
                   </div>
-                </motion.div>
+                </div>
               ))}
             </div>
           </div>

@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { LogoIcon } from "../Components/Logo";
 import { DemoModelPreview, DEMO_MODEL_TYPES } from "../Components/DemoModels";
+import ModelThumbnail from "../Components/ModelThumbnail";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -489,30 +490,14 @@ export default function MyStorage() {
                 transition={{ delay: index * 0.05 }}
                 className={`bg-gray-900/80 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden hover:border-white/20 transition-colors group`}
               >
-                {/* Thumbnail - show real AI thumbnail or fallback to DemoModelPreview */}
+                {/* Thumbnail - render actual 3D model or fallback to image */}
                 <div className={`aspect-square bg-gray-800/50 relative overflow-hidden`}>
-                  {model.thumbnailUrl && model.thumbnailUrl.startsWith('http') ? (
-                    <img
-                      src={model.thumbnailUrl}
-                      alt={model.name}
-                      className="w-full h-full object-contain bg-gray-900"
-                      style={{ mixBlendMode: 'normal' }}
-                      onError={(e) => {
-                        // If image fails to load, hide it and show demo model
-                        e.target.style.display = 'none';
-                        e.target.nextElementSibling?.classList.remove('hidden');
-                      }}
-                    />
-                  ) : null}
-                  {/* DemoModelPreview as fallback when no real thumbnail */}
-                  <div className={`absolute inset-0 ${model.thumbnailUrl && model.thumbnailUrl.startsWith('http') ? 'hidden' : ''}`}>
-                    <DemoModelPreview 
-                      modelType={model.modelType || getModelTypeFromPrompt(model.prompt || model.name)}
-                      variant={model.variant || 1}
-                      className="w-full h-full"
-                      autoRotate={true}
-                    />
-                  </div>
+                  <ModelThumbnail
+                    modelUrl={model.modelUrl}
+                    thumbnailUrl={model.thumbnailUrl}
+                    name={model.name}
+                    className="w-full h-full"
+                  />
                   
                   {/* Variant Badge */}
                   {model.variant && model.variant > 1 && (
@@ -606,16 +591,12 @@ export default function MyStorage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className={`w-12 h-12 bg-gray-800/50 rounded-lg flex items-center justify-center overflow-hidden`}>
-                          {model.thumbnailUrl && model.thumbnailUrl.startsWith('http') ? (
-                            <img src={model.thumbnailUrl} alt="" className="w-full h-full object-contain" />
-                          ) : (
-                            <DemoModelPreview 
-                              modelType={model.modelType || getModelTypeFromPrompt(model.prompt)}
-                              variant={model.variant || 1}
-                              className="w-full h-full"
-                              autoRotate={true}
-                            />
-                          )}
+                          <ModelThumbnail
+                            modelUrl={model.modelUrl}
+                            thumbnailUrl={model.thumbnailUrl}
+                            name={model.name}
+                            className="w-full h-full"
+                          />
                         </div>
                         <div>
                           <p className={`font-medium ${currentTheme.text}`}>

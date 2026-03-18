@@ -17,13 +17,63 @@ function Loader() {
   );
 }
 
-// Paintable 3D Model component with vertex-level brush painting
-function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onPaint, wireframe, brightness }) {
-  const { scene } = useGLTF(url);
+// Paintable 3D Model component with vertex-level brush painting and animation support
+function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onPaint, wireframe, brightness, playAnimation }) {
+  const { scene, animations } = useGLTF(url);
   const ref = useRef();
   const { raycaster, camera, gl } = useThree();
   const isPaintingRef = useRef(false);
   const lastPaintPosRef = useRef(null);
+  const mixerRef = useRef(null);
+  const actionsRef = useRef([]);
+  
+  // Animation playback using THREE.AnimationMixer
+  useEffect(() => {
+    if (!scene) return;
+    
+    // Dispose old mixer
+    if (mixerRef.current) {
+      mixerRef.current.stopAllAction();
+      mixerRef.current.uncacheRoot(scene);
+      mixerRef.current = null;
+      actionsRef.current = [];
+    }
+    
+    if (animations && animations.length > 0) {
+      console.log(`🎬 Model has ${animations.length} animation(s):`, animations.map(a => a.name));
+      const mixer = new THREE.AnimationMixer(scene);
+      mixerRef.current = mixer;
+      
+      // Play all animations if playAnimation is true
+      if (playAnimation) {
+        animations.forEach((clip) => {
+          const action = mixer.clipAction(clip);
+          action.play();
+          actionsRef.current.push(action);
+        });
+        console.log("▶️ Playing animations");
+      }
+    }
+    
+    return () => {
+      if (mixerRef.current) {
+        mixerRef.current.stopAllAction();
+        mixerRef.current = null;
+        actionsRef.current = [];
+      }
+    };
+  }, [scene, animations, playAnimation]);
+  
+  // Update animation mixer each frame
+  useFrame((state, delta) => {
+    if (mixerRef.current && playAnimation) {
+      mixerRef.current.update(delta);
+    }
+    // Auto rotation (only when not in paint mode and not playing animation)
+    if (ref.current && window.autoRotate && !isPaintMode && !playAnimation) {
+      ref.current.rotation.y += delta * 0.5;
+    }
+  });
   
   // ONE-TIME initialization: setup vertex colors and materials for painting
   // NOTE: We do NOT manually scale/center here — <Center> handles that
@@ -79,13 +129,6 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
       }
     });
   }, [scene, wireframe, brightness]);
-  
-  // Auto rotation (only when not in paint mode)
-  useFrame((state, delta) => {
-    if (ref.current && window.autoRotate && !isPaintMode) {
-      ref.current.rotation.y += delta * 0.5;
-    }
-  });
 
   // Paint vertices near the intersection point with brush radius and falloff
   const paintAtPoint = useCallback((intersect) => {
@@ -373,7 +416,9 @@ export default function ModelViewer({
   onPaint,
   // Visual props
   wireframe = false,
-  brightness = 100
+  brightness = 100,
+  // Animation props
+  playAnimation = false
 }) {
   const controlsRef = useRef();
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -499,6 +544,7 @@ export default function ModelViewer({
                 onPaint={onPaint}
                 wireframe={wireframe}
                 brightness={brightness}
+                playAnimation={playAnimation}
               />
             </Center>
           </group>
