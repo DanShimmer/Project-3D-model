@@ -1,6 +1,6 @@
 ; Polyva 3D NSIS Installer Script
 !macro customHeader
-  !system "echo '' > /dev/null"
+  ; Custom header - no additional steps needed
 !macroend
 
 !macro preInit
