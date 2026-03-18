@@ -1,7 +1,7 @@
 # Python AI Service Dependencies
 # Requires CUDA-enabled GPU (NVIDIA RTX 3060 12GB+ recommended)
 # ============================================================
-# 3D Engine: Hunyuan3D-2 (Tencent) — replaces TripoSR
+# 3D Engine: Hunyuan3D-2 (Tencent)
 # ============================================================
 
 # Core

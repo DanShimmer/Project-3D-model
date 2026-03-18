@@ -45,6 +45,9 @@ AI-service/models/
 AI-service/venv311/
 AI-service/venv/
 .venv/
+
+# Hunyuan3D-2 (separate git repo, cloned locally)
+AI-service/Hunyuan3D-2/
 # Electron release builds (too large for GitHub)
 front-end/release/
 *.asar

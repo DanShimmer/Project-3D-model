@@ -5,7 +5,7 @@ with built-in texture synthesis.
 
 Official repo: https://github.com/Tencent-Hunyuan/Hunyuan3D-2
 
-Key advantages over TripoSR:
+Key features:
 - Flow-matching diffusion transformer (1.1B params) for shape
 - Dedicated paint model (1.3B params) for UV-mapped texture
 - Much higher geometry detail and texture quality
@@ -444,7 +444,6 @@ hunyuan3d_generator = Hunyuan3DGenerator()
 def image_to_3d(image: Image.Image, output_path: str = None, with_texture: bool = None) -> str:
     """
     Convenience function for image to 3D generation.
-    Drop-in replacement for triposr_wrapper.image_to_3d()
     """
     return hunyuan3d_generator.generate_3d(image, output_path, with_texture=with_texture)
 

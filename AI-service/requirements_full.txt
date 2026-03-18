@@ -35,7 +35,7 @@ transformers==4.38.0   # Hugging Face Transformers
 accelerate==0.27.0     # Accelerated training/inference
 safetensors==0.4.2     # Safe tensor format
 
-# TripoSR (Image-to-3D) - required in TripoSR folder
+# Hunyuan3D-2 & HuggingFace dependencies
 huggingface-hub==0.20.3
 omegaconf==2.3.0       # Config management
 einops==0.7.0          # Tensor operations

@@ -165,5 +165,5 @@ class Phase2Config:
 
 - Stable Diffusion by Stability AI
 - ControlNet by lllyasviel
-- TripoSR for 3D generation
+- Hunyuan3D-2 by Tencent for 3D generation
 - Three.js for WebGL rendering

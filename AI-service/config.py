@@ -17,20 +17,13 @@ for d in [UPLOAD_DIR, OUTPUT_DIR, MODELS_DIR, CACHE_DIR]:
 
 # Model configurations
 class SDConfig:
-    """Stable Diffusion Configuration — Clean 3D Render style for TripoSR
+    """Stable Diffusion Configuration — Clean 3D Render style for Hunyuan3D
     
-    DESIGN PHILOSOPHY (revised — learned from official TripoSR + YouTube demos):
-    TripoSR was trained on the Objaverse dataset = rendered 3D objects with
-    COLOR, texture, and studio lighting. The DINOv2 encoder extracts rich
-    visual features from colorful images.
-    
-    PREVIOUS MISTAKE: Gray clay images strip too much info → bad reconstruction.
-    YouTube users feed colorful, detailed images → get great models.
-    
-    SOLUTION: Generate images that look like clean 3D GAME ASSET renders:
+    DESIGN PHILOSOPHY:
+    Generate images that look like clean 3D GAME ASSET renders:
     - Colorful with simple/flat color palette (like a game asset)
     - Clean studio lighting (soft, even, no dramatic shadows)
-    - Gray background (matches TripoSR training data)
+    - Gray background for clean background removal
     - Clear silhouette with solid proportions
     - Simple surface (not photorealistic, not hyperdetailed)
     """
@@ -49,14 +42,12 @@ class SDConfig:
     # Shared fallback
     GUIDANCE_SCALE = 7.5
     
-    # === NEGATIVE PROMPT — block things that hurt TripoSR reconstruction ===
-    # Block: shadows on ground (reconstructed as geometry), complex backgrounds,
-    # photorealism (too detailed), thin/broken geometry, 2D/flat styles.
-    # DO NOT block: color, simple textures, lighting (these HELP TripoSR)
+    # === NEGATIVE PROMPT — block things that hurt 3D reconstruction ===
+    # Block: shadows on ground, complex backgrounds, photorealism, thin geometry, 2D styles.
     NEGATIVE_PROMPT = (
-        # Kill ground shadows — TripoSR reconstructs them as concave geometry
+        # Kill ground shadows — reconstructed as concave geometry
         "shadow on ground, cast shadow, drop shadow, ground shadow, "
-        # Kill environment — TripoSR reconstructs background as solid geometry
+        # Kill environment — reconstructed as solid geometry
         "environment, landscape, scenery, background scene, background details, "
         "floor, ground, ground plane, "
         "pedestal, stand, platform, base, surface, table, "
@@ -77,10 +68,6 @@ class SDConfig:
     )
     
     # === BASE PROMPT — clean 3D render for geometry + color reconstruction ===
-    # KEY INSIGHT: TripoSR was trained on Objaverse renders = colorful 3D objects
-    # with studio lighting. Colorful images give DINOv2 MORE features to work with.
-    # YouTube demos use colorful images → great models.
-    # Gray clay strips info → bad models.
     BASE_3D_PROMPT = (
         "3D render, clean studio lighting, solid geometry, "
         "centered object, gray background, high quality, "

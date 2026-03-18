@@ -9,7 +9,7 @@
 - Symmetry enforcement
 - Format conversion
 
-Supports both Hunyuan3D (Y-up native) and TripoSR (Z-up → Y-up conversion).
+Supports Hunyuan3D (Y-up native) output.
 Default: Hunyuan3D mode (no Z→Y conversion needed).
 """
 import numpy as np
@@ -63,7 +63,7 @@ def remove_disconnected_components(mesh: trimesh.Trimesh, keep_largest: bool = T
 def remove_boundary_artifacts(mesh: trimesh.Trimesh, trim_ratio: float = 0.02) -> trimesh.Trimesh:
     """
     Remove vertices/faces near the bounding box edges.
-    TripoSR sometimes creates a thin shell or frame at the edges of the
+    3D generators sometimes create a thin shell or frame at the edges of the
     reconstruction volume. This trims geometry at the outermost edges.
     
     trim_ratio: fraction of bounding box to trim from each edge (default 2%)
@@ -386,46 +386,6 @@ def export_glb(mesh: trimesh.Trimesh, output_path: str) -> str:
     return str(output_path)
 
 
-def orient_mesh_upright(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    """
-    Convert TripoSR's Z-up coordinate system to GLB/Three.js Y-up.
-    
-    TripoSR outputs Z-up ("right hand, x back, y right, z up").
-    GLB/Three.js uses Y-up.
-    
-    This applies the EXACT same transform as TripoSR's to_gradio_3d_orientation():
-        1. Rotate -90° around X
-        2. Rotate +90° around Y
-    Combined: (x, y, z) → (-y, z, -x)
-    
-    IMPORTANT: Modifies vertices IN-PLACE to preserve TextureVisuals (UV map +
-    PBR material). Previous version created a brand new Trimesh which LOST
-    texture data — only vertex colors were copied, but BAKE_TEXTURE=True means
-    the mesh uses UV-mapped textures, not vertex colors.
-    """
-    extents = mesh.extents
-    x_ext, y_ext, z_ext = extents[0], extents[1], extents[2]
-    
-    print(f"  → Orientation: BEFORE X={x_ext:.3f}, Y={y_ext:.3f}, Z={z_ext:.3f}")
-    print(f"    → Applying Z-up → Y-up conversion: (x,y,z) → (-y, z, -x)")
-    
-    # Direct vertex coordinate swap via numpy — IN-PLACE on the mesh
-    # This preserves ALL visual data (TextureVisuals, UV maps, materials)
-    v = mesh.vertices.copy()
-    mesh.vertices[:, 0] = -v[:, 1]   # new X = -old Y
-    mesh.vertices[:, 1] = v[:, 2]    # new Y = old Z  (height → Y-up)
-    mesh.vertices[:, 2] = -v[:, 0]   # new Z = -old X
-    
-    # Clear cached geometry data so normals/bounds are recomputed
-    if hasattr(mesh, '_cache'):
-        mesh._cache.clear()
-    
-    new_extents = mesh.extents
-    print(f"    ✓ Orientation: AFTER  X={new_extents[0]:.3f}, Y={new_extents[1]:.3f}, Z={new_extents[2]:.3f}")
-    
-    return mesh
-
-
 def auto_fix_upright(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """
     Auto-detect and fix model orientation so it stands upright (Y-up).
@@ -721,9 +681,7 @@ def postprocess_mesh(
     """
     Post-processing pipeline for 3D model output.
     
-    Supports both Hunyuan3D-2 and TripoSR outputs:
-    - Hunyuan3D: Already Y-up, skip Z→Y conversion
-    - TripoSR:   Z-up, apply Z→Y conversion
+    Post-processing pipeline for Hunyuan3D-2 output.
     
     Pipeline:
     1. Load mesh
@@ -731,10 +689,9 @@ def postprocess_mesh(
     3. Basic mesh cleanup (degenerate faces, normals)
     4. (OPTIONAL) Smooth — DISABLED by default
     5. (OPTIONAL) Reduce polygons — only if exceeding target
-    6. (TripoSR only) Convert Z-up → Y-up
-    7. Auto-fix upright orientation
-    8. Normalize scale, center, ground at Y=0
-    9. Export as GLB
+    6. Auto-fix upright orientation
+    7. Normalize scale, center, ground at Y=0
+    8. Export as GLB
     """
     print(f"🔧 Post-processing ({source}): {input_path}")
     
@@ -766,16 +723,10 @@ def postprocess_mesh(
     if reduce:
         mesh = reduce_polygons(mesh, target_faces)
     
-    # Step 5: Orientation fix
-    if source == 'triposr':
-        # TripoSR outputs Z-up → convert to Y-up
-        mesh = orient_mesh_upright(mesh)
-    else:
-        # Hunyuan3D already outputs Y-up (GLB standard)
-        print("  → Hunyuan3D output: already Y-up (GLB standard), skipping Z→Y conversion")
+    # Step 5: Hunyuan3D outputs Y-up (GLB standard), no conversion needed
+    print("  → Hunyuan3D output: already Y-up (GLB standard)")
     
     # Step 6: Auto-fix upright orientation — validate model is actually upright
-    # Works for both Hunyuan3D and TripoSR
     mesh = auto_fix_upright(mesh)
     
     # Step 7: Normalize scale, center horizontally, ground at Y=0

@@ -4,10 +4,8 @@ Supports SD 1.5 (fast) and SDXL (quality)
 
 Optimized for RTX 3060 12GB
 
-PIPELINE: text → SD 3D render image → preprocess → TripoSR → mesh
+PIPELINE: text → SD 3D render image → preprocess → Hunyuan3D → mesh
 The SD step generates COLORFUL 3D RENDER images (like game assets).
-TripoSR's DINOv2 encoder extracts rich features from colorful images.
-Gray clay was WRONG — TripoSR was trained on colorful Objaverse renders.
 Texturing can be enhanced separately in Phase 2.
 """
 import torch
@@ -320,13 +318,9 @@ class StableDiffusionGenerator:
 
     def _build_3d_prompt(self, user_prompt: str, mode: str = "fast", view: str = None) -> str:
         """
-        Build a 3D RENDER prompt optimized for TripoSR reconstruction.
+        Build a 3D RENDER prompt optimized for Hunyuan3D reconstruction.
         
         Structure: {pose_override}, {subject}, {category_style}, {base_3d_prompt}, {view_angle}
-        
-        Key insight (from YouTube/official demos): TripoSR works BEST with
-        colorful, well-lit 3D renders — NOT gray clay. The DINOv2 encoder
-        extracts MORE features from colorful images.
         """
         user_prompt = user_prompt.strip().rstrip('.')
         category = self._classify_object(user_prompt)
@@ -422,10 +416,10 @@ class StableDiffusionGenerator:
                         generator=generator
                     ).images[0]
                 
-                # Downscale SDXL 1024→512 for TripoSR compatibility
-                triposr_size = ProcessingConfig.TARGET_SIZE  # 512
-                if img.size[0] > triposr_size or img.size[1] > triposr_size:
-                    img = img.resize((triposr_size, triposr_size), Image.Resampling.LANCZOS)
+                # Downscale SDXL 1024→512 for preprocessing compatibility
+                target_size = ProcessingConfig.TARGET_SIZE  # 512
+                if img.size[0] > target_size or img.size[1] > target_size:
+                    img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
             else:
                 self._load_sd15()
                 if self.sdxl_pipe is not None:
@@ -511,12 +505,11 @@ class StableDiffusionGenerator:
                     generator=generator
                 ).images[0]
             
-            # SDXL generates at 1024px but TripoSR was trained on 512x512.
-            # Downscale to 512 for optimal TripoSR reconstruction quality.
-            triposr_size = ProcessingConfig.TARGET_SIZE  # 512
-            if result.size[0] > triposr_size or result.size[1] > triposr_size:
-                print(f"  📐 Resizing SDXL output {result.size[0]}→{triposr_size}px (TripoSR training resolution)")
-                result = result.resize((triposr_size, triposr_size), Image.Resampling.LANCZOS)
+            # SDXL generates at 1024px, downscale to 512 for preprocessing.
+            target_size = ProcessingConfig.TARGET_SIZE  # 512
+            if result.size[0] > target_size or result.size[1] > target_size:
+                print(f"  📐 Resizing SDXL output {result.size[0]}→{target_size}px")
+                result = result.resize((target_size, target_size), Image.Resampling.LANCZOS)
                 
         else:
             # Use SD 1.5 (fast mode)

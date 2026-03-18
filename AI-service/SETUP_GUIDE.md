@@ -32,14 +32,12 @@
 ```
 AI-service/
 │
-├── app_full.py         # 🚀 Production AI service (GPU required)
-├── app_simple.py       # 🧪 Demo AI service (no GPU needed)
-├── app.py              # Original AI service (backup)
+├── app.py              # Main AI service (Hunyuan3D-2)
+├── app_simple.py       # Demo AI service (no GPU needed)
 │
-├── requirements_full.txt    # Full requirements for GPU version
-├── requirements.txt         # Basic requirements
+├── requirements.txt         # Python dependencies
 │
-├── TripoSR/            # Image-to-3D model (submodule)
+├── Hunyuan3D-2/        # 3D generation engine
 ├── cache/              # Downloaded model cache
 ├── outputs/            # Generated 3D models
 └── uploads/            # Uploaded images

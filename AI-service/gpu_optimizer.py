@@ -4,7 +4,7 @@ Optimized settings for best performance with 12GB VRAM
 
 This file contains optimized configurations for:
 - Stable Diffusion 1.5 and SDXL
-- TripoSR 3D generation
+- Hunyuan3D-2 3D generation
 - AI Texturing with ControlNet
 - Memory management
 """
@@ -77,7 +77,7 @@ class GPUOptimizer:
                 "enable_xformers": True,
                 "enable_torch_compile": True,
                 "batch_size": 1,
-                "max_concurrent_models": 1,  # Can keep SD and TripoSR loaded
+                "max_concurrent_models": 1,  # Can keep SD and Hunyuan3D loaded
             },
             # SD 1.5 specific
             "sd15": {
@@ -92,11 +92,11 @@ class GPUOptimizer:
                 "guidance_scale": 7.5,
                 "enable_model_cpu_offload": False,  # Not needed
             },
-            # TripoSR settings
-            "triposr": {
-                "chunk_size": 8192,  # Can use larger chunks
-                "mc_resolution": 256,  # 256: official default, proven quality
-                "batch_size": 1,
+            # Hunyuan3D-2 settings
+            "hunyuan3d": {
+                "octree_resolution": 380,
+                "num_inference_steps": 5,  # Turbo mode
+                "low_vram_mode": False,
             },
             # Texturing settings
             "texturing": {
@@ -136,10 +136,10 @@ class GPUOptimizer:
                 "guidance_scale": 7.0,
                 "enable_model_cpu_offload": True,
             },
-            "triposr": {
-                "chunk_size": 4096,
-                "mc_resolution": 192,
-                "batch_size": 1,
+            "hunyuan3d": {
+                "octree_resolution": 256,
+                "num_inference_steps": 5,
+                "low_vram_mode": True,
             },
             "texturing": {
                 "controlnet_conditioning_scale": 0.7,
@@ -177,10 +177,10 @@ class GPUOptimizer:
                 "guidance_scale": 7.0,
                 "enable_model_cpu_offload": True,
             },
-            "triposr": {
-                "chunk_size": 2048,
-                "mc_resolution": 128,
-                "batch_size": 1,
+            "hunyuan3d": {
+                "octree_resolution": 192,
+                "num_inference_steps": 5,
+                "low_vram_mode": True,
             },
             "texturing": {
                 "controlnet_conditioning_scale": 0.6,
@@ -218,10 +218,10 @@ class GPUOptimizer:
                 "guidance_scale": 7.0,
                 "enable_model_cpu_offload": True,
             },
-            "triposr": {
-                "chunk_size": 1024,
-                "mc_resolution": 96,
-                "batch_size": 1,
+            "hunyuan3d": {
+                "octree_resolution": 128,
+                "num_inference_steps": 5,
+                "low_vram_mode": True,
             },
             "texturing": {
                 "controlnet_conditioning_scale": 0.5,
@@ -300,7 +300,7 @@ class GPUOptimizer:
         print(f"  - VAE slicing: {self.optimizations['sd']['enable_vae_slicing']}")
         print(f"  - xformers: {self.optimizations['sd']['enable_xformers']}")
         print(f"  - SDXL resolution: {self.optimizations['sdxl']['resolution']}")
-        print(f"  - TripoSR chunk size: {self.optimizations['triposr']['chunk_size']}")
+        print(f"  - Hunyuan3D octree res: {self.optimizations.get('hunyuan3d', {}).get('octree_resolution', 'N/A')}")
         
         mem = self.get_memory_info()
         if mem["available"]:

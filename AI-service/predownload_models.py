@@ -4,8 +4,8 @@ Run this BEFORE your demo to avoid long waits during generation.
 
 Usage:
     python predownload_models.py          # Download all models
-    python predownload_models.py fast     # Download SD 1.5 + TripoSR only
-    python predownload_models.py quality  # Download SDXL + TripoSR only
+    python predownload_models.py fast     # Download SD 1.5 only
+    python predownload_models.py quality  # Download SDXL only
 """
 import sys
 import os
@@ -16,7 +16,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-from config import SDConfig, TripoConfig, CACHE_DIR, DEVICE
+from config import SDConfig, CACHE_DIR, DEVICE
 
 def download_sd15():
     """Pre-download Stable Diffusion 1.5"""
@@ -73,47 +73,13 @@ def download_sdxl():
     print(f"✅ SDXL downloaded in {elapsed:.1f}s")
 
 
-def download_triposr():
-    """Pre-download TripoSR model"""
-    print("\n" + "=" * 60)
-    print("📦 Downloading TripoSR...")
-    print(f"   Model: {TripoConfig.MODEL_ID}")
-    print("=" * 60)
-    
-    start = time.time()
-    
-    try:
-        # Try local TripoSR installation
-        TRIPOSR_PATH = os.getenv("TRIPOSR_PATH", "./TripoSR")
-        if os.path.exists(TRIPOSR_PATH):
-            sys.path.insert(0, TRIPOSR_PATH)
-        
-        from tsr.system import TSR
-        model = TSR.from_pretrained(
-            TripoConfig.MODEL_ID,
-            config_name="config.yaml",
-            weight_name="model.ckpt"
-        )
-        del model
-        elapsed = time.time() - start
-        print(f"✅ TripoSR downloaded in {elapsed:.1f}s")
-    except ImportError:
-        try:
-            from huggingface_hub import snapshot_download
-            snapshot_download(TripoConfig.MODEL_ID, cache_dir=str(CACHE_DIR))
-            elapsed = time.time() - start
-            print(f"✅ TripoSR downloaded in {elapsed:.1f}s")
-        except Exception as e:
-            print(f"⚠️ Could not pre-download TripoSR: {e}")
-            print("   It will be downloaded on first use.")
-
-
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
     
     print("🚀 Polyva 3D - Model Pre-Download")
     print(f"   Device: {DEVICE}")
     print(f"   Cache dir: {CACHE_DIR}")
+    print("   Note: Hunyuan3D-2 models are downloaded automatically on first use.")
     
     total_start = time.time()
     
@@ -122,8 +88,6 @@ def main():
     
     if mode in ("all", "quality"):
         download_sdxl()
-    
-    download_triposr()
     
     total_elapsed = time.time() - total_start
     print("\n" + "=" * 60)

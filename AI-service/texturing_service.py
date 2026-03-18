@@ -329,14 +329,14 @@ class AITexturingService:
             if isinstance(mesh, trimesh.Scene):
                 mesh = mesh.dump(concatenate=True)
             
-            # Check if mesh already has vertex colors from TripoSR
+            # Check if mesh already has vertex colors
             has_vertex_colors = (
                 hasattr(mesh.visual, 'vertex_colors') and 
                 mesh.visual.vertex_colors is not None and
                 len(mesh.visual.vertex_colors) > 0
             )
             if has_vertex_colors:
-                print(f"   ✓ Mesh has {len(mesh.visual.vertex_colors)} vertex colors from TripoSR")
+                print(f"   ✓ Mesh has {len(mesh.visual.vertex_colors)} vertex colors")
             
             # Step 2: Generate UV coordinates if missing
             print("🗺️ Step 2: Checking UV coordinates...")

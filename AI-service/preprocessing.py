@@ -24,7 +24,6 @@ def remove_background(image: Image.Image) -> Image.Image:
     """
     Remove background from image using rembg (U2-Net).
     Returns RGBA image with transparent background.
-    Uses TripoSR's same approach from tsr/utils.py.
     """
     session = _get_rembg_session()
     
@@ -54,7 +53,6 @@ def remove_background(image: Image.Image) -> Image.Image:
 def resize_foreground(image: Image.Image, ratio: float = 0.85) -> Image.Image:
     """
     Crop to foreground, pad to square, then pad by foreground ratio.
-    This is the EXACT same logic as TripoSR's tsr/utils.py resize_foreground().
     
     The foreground_ratio controls how much of the final image the object fills.
     0.85 means the object takes up 85% of the image, with 15% padding.
@@ -104,10 +102,9 @@ def resize_foreground(image: Image.Image, ratio: float = 0.85) -> Image.Image:
 def composite_on_gray(image: Image.Image) -> Image.Image:
     """
     Composite RGBA image onto GRAY (0.5) background.
-    This is CRITICAL for TripoSR - it was trained on gray backgrounds.
+    Gray background helps with clean background removal for Hunyuan3D.
     
-    From TripoSR's run.py:
-        image = image[:,:,:3] * image[:,:,3:4] + (1 - image[:,:,3:4]) * 0.5
+    Formula: image[:,:,:3] * alpha + (1 - alpha) * 0.5
     """
     img_array = np.array(image).astype(np.float32) / 255.0
     
@@ -128,7 +125,6 @@ def enhance_for_3d(image: Image.Image) -> Image.Image:
     """
     Optional image enhancement (DISABLED by default — factors = 1.0).
     
-    Official TripoSR pipeline does NO enhancement at all.
     Enhancement was found to HURT quality by amplifying SD artifacts.
     
     With default config (ENHANCE_CONTRAST=1.0, ENHANCE_SHARPNESS=1.0),
@@ -153,10 +149,10 @@ def enhance_for_3d(image: Image.Image) -> Image.Image:
     return result
 
 
-def select_best_view_for_triposr(views: dict) -> Image.Image:
+def select_best_view(views: dict) -> Image.Image:
     """
     From a dict of {view_name: PIL Image}, select the best single view
-    for 3D reconstruction (works for both TripoSR and Hunyuan3D).
+    for 3D reconstruction with Hunyuan3D.
     
     Priority:
     1. three_quarter view (shows most 3D information — front + side + top)
@@ -184,7 +180,7 @@ def preprocess_for_hunyuan3d(
     Preprocessing pipeline for Hunyuan3D-2.
     
     Hunyuan3D-2 expects RGBA image with transparent background.
-    Unlike TripoSR (which needs gray background), Hunyuan3D has its own
+    Hunyuan3D has its own
     built-in background removal and image preprocessing, so we just need
     to ensure the image is clean RGBA.
     
@@ -217,17 +213,13 @@ def preprocess_image(
     enhance: bool = True
 ) -> Image.Image:
     """
-    Full preprocessing pipeline for TripoSR 3D conversion.
-    Matches OFFICIAL TripoSR run.py pipeline.
+    Full preprocessing pipeline for image-to-3D conversion.
     
     1. Remove background → RGBA with transparent bg
     2. Resize foreground → crop, pad to square, pad by ratio  
     3. Composite on GRAY (0.5) background → RGB
     4. (Optional) Enhancement — DISABLED by default (factors = 1.0)
     5. Resize to target size (512)
-    
-    IMPORTANT: Official TripoSR does steps 1-3 only, NO enhancement.
-    Enhancement is disabled by default (config factors = 1.0).
     """
     if target_size is None:
         target_size = cfg.TARGET_SIZE
@@ -239,15 +231,15 @@ def preprocess_image(
     else:
         rgba_image = image.convert('RGBA') if image.mode != 'RGBA' else image
     
-    # Step 2: Resize foreground (TripoSR's exact method)
+    # Step 2: Resize foreground
     print(f"  → Resizing foreground (ratio: {foreground_ratio})...")
     rgba_image = resize_foreground(rgba_image, foreground_ratio)
     
-    # Step 3: Composite on GRAY (0.5) background (CRITICAL for TripoSR)
-    print("  → Compositing on gray background (TripoSR standard)...")
+    # Step 3: Composite on GRAY (0.5) background
+    print("  → Compositing on gray background...")
     result = composite_on_gray(rgba_image)
     
-    # Step 4: Enhancement (DISABLED by default — official TripoSR does NONE)
+    # Step 4: Enhancement (DISABLED by default)
     if enhance:
         result = enhance_for_3d(result)
     

@@ -2694,7 +2694,7 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
               </div>
               {/* Footer hint */}
               <div className={`px-4 py-2 text-xs ${theme === 'dark' ? 'text-gray-500 bg-gray-900/50' : 'text-gray-400 bg-gray-50'} text-center`}>
-                This is the image Stable Diffusion generated before TripoSR converted it to 3D
+                This is the image Stable Diffusion generated before Hunyuan3D converted it to 3D
               </div>
             </motion.div>
           </motion.div>

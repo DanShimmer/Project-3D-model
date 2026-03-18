@@ -31,7 +31,7 @@ from config import (
     UPLOAD_DIR, OUTPUT_DIR,
     SDConfig, ProcessingConfig, Hunyuan3DConfig
 )
-from preprocessing import preprocess_image, preprocess_for_hunyuan3d, select_best_view_for_triposr
+from preprocessing import preprocess_image, preprocess_for_hunyuan3d, select_best_view
 from stable_diffusion import text_to_image, text_to_multiview
 from hunyuan3d_wrapper import image_to_3d, hunyuan3d_generator
 from postprocessing import postprocess_mesh, render_mesh_thumbnail
@@ -93,8 +93,7 @@ def health_check():
             'optimizations': {
                 'sd_dtype': str(gpu_optimizer.optimizations['sd']['dtype']),
                 'xformers': gpu_optimizer.optimizations['sd']['enable_xformers'],
-                'sdxl_resolution': gpu_optimizer.optimizations['sdxl']['resolution'],
-                'triposr_chunk_size': gpu_optimizer.optimizations['triposr']['chunk_size']
+                'sdxl_resolution': gpu_optimizer.optimizations['sdxl']['resolution']
             }
         }
     
@@ -173,7 +172,7 @@ def text_to_3d_endpoint():
                 view_img.save(view_path)
             
             # Select best single view for Hunyuan3D (three-quarter preferred)
-            generated_image = select_best_view_for_triposr(view_images)
+            generated_image = select_best_view(view_images)
             
             # Save the primary preview
             preview_path = OUTPUT_DIR / f"{job_id}_preview.png"
@@ -411,7 +410,7 @@ def _run_batch_generation(job_id, prompt, mode, num_variants):
             
             if ProcessingConfig.ENABLE_MULTIVIEW:
                 view_images = text_to_multiview(prompt, mode, seed=seed, views=ProcessingConfig.MULTIVIEW_VIEWS)
-                img = select_best_view_for_triposr(view_images)
+                img = select_best_view(view_images)
                 for view_name, view_img in view_images.items():
                     view_path = OUTPUT_DIR / f"{job_id}_v{i}_view_{view_name}.png"
                     view_img.save(view_path)
@@ -670,7 +669,7 @@ def serve_output(filename):
 @app.route('/api/debug/images/<job_id>', methods=['GET'])
 def debug_images(job_id):
     """
-    List all generated images for a job (for debugging SD → TripoSR pipeline).
+    List all generated images for a job (for debugging SD → Hunyuan3D pipeline).
     Returns URLs for: SD preview, preprocessed image, 3D thumbnail, multi-view images.
     
     Usage: GET /api/debug/images/<job_id>
