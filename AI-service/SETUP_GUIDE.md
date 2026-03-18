@@ -69,8 +69,8 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 # 5. Install other dependencies
 pip install -r requirements_full.txt
 
-# 6. Run the full AI service
-python app_full.py
+# 6. Run the AI service
+python app.py
 ```
 
 
@@ -156,11 +156,11 @@ mode: fast
 To switch to full production mode:
 1. Stop current demo service (Ctrl+C)
 2. Follow "Option 1: Full GPU Setup" above
-3. Run: python app_full.py
+3. Run: `python app.py`
 
 ### Need GPU?
-The full version requires an NVIDIA GPU with CUDA support.
-Without GPU, the demo mode returns sample 3D models for UI testing.
+The full version (app.py) requires an NVIDIA GPU with CUDA support.
+Without GPU, use app_simple.py which returns sample 3D models for UI testing.
 
 
 ## ✅ VERIFY SETUP

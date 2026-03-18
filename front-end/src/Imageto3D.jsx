@@ -127,7 +127,7 @@ export default function ImageTo3DPage() {
               <span>AI Model</span>
               <div className="flex-1" />
               <select className="bg-gray-800/30 rounded px-2 py-1 text-sm">
-                <option>Meshy 6 Preview</option>
+                <option>Polyva (Hunyuan3D-2)</option>
               </select>
             </label>
           </div>
