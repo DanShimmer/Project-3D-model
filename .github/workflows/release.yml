@@ -12,6 +12,9 @@ on:
         required: true
         default: 'v2.0.0'
 
+permissions:
+  contents: write
+
 env:
   # Determine the release tag: use input version for manual dispatch, otherwise use the git tag
   RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
@@ -38,8 +41,6 @@ jobs:
       - name: Build & Package (Windows)
         working-directory: front-end
         run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -90,7 +91,6 @@ jobs:
         working-directory: front-end
         run: npm run build:mac
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false  # Skip code signing (no Apple Developer cert in CI)
 
       - name: Upload macOS artifacts
@@ -129,8 +129,6 @@ jobs:
       - name: Build & Package (Linux)
         working-directory: front-end
         run: npm run build:linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -150,8 +148,6 @@ jobs:
     # Run even if some builds failed — create release with whatever succeeded
     if: always() && (needs.build-windows.result == 'success' || needs.build-macos.result == 'success' || needs.build-linux.result == 'success')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

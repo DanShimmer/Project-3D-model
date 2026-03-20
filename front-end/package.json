@@ -20,9 +20,9 @@
     "start": "vite",
     "build": "vite build",
     "build:electron": "npm run build && electron-builder",
-    "build:win": "npm run build && electron-builder --win",
-    "build:mac": "npm run build && electron-builder --mac",
-    "build:linux": "npm run build && electron-builder --linux",
+    "build:win": "npm run build && electron-builder --win -p never",
+    "build:mac": "npm run build && electron-builder --mac -p never",
+    "build:linux": "npm run build && electron-builder --linux -p never",
     "preview": "vite preview",
     "electron": "electron .",
     "pack": "electron-builder --dir",
@@ -142,12 +142,7 @@
       "synopsis": "AI-powered 3D model generation",
       "description": "Create stunning 3D models from text or images using AI"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "DanShimmer",
-      "repo": "Project-3D-model",
-      "releaseType": "release"
-    }
+    "publish": null
   },
   "keywords": [
     "3d",
