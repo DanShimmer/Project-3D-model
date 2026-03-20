@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import path from "path";
+import axios from "axios";
 import authRoutes from "./routes/auth";
 import adminRoutes from "./routes/admin";
 import modelRoutes from "./routes/model";
@@ -13,6 +14,7 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 
 dotenv.config();
 const app = express();
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
@@ -31,6 +33,25 @@ app.use("/downloads", express.static(releasePath, {
     }
   }
 }));
+
+// Proxy /outputs/* to AI service so saved model URLs work through the backend too
+app.get("/outputs/:filename(*)", async (req, res) => {
+  try {
+    const response = await axios.get(`${AI_SERVICE_URL}/outputs/${req.params.filename}`, {
+      responseType: "stream",
+      timeout: 30000
+    });
+    // Forward content headers
+    if (response.headers["content-type"]) res.setHeader("Content-Type", response.headers["content-type"]);
+    if (response.headers["content-length"]) res.setHeader("Content-Length", response.headers["content-length"]);
+    response.data.pipe(res);
+  } catch (err: any) {
+    if (err.code === "ECONNREFUSED") {
+      return res.status(503).json({ ok: false, error: "AI service is not running" });
+    }
+    return res.status(err.response?.status || 500).json({ ok: false, error: "File not found" });
+  }
+});
 
 // Routes
 app.use("/api/auth", authRoutes);

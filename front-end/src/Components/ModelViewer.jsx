@@ -1,8 +1,35 @@
 import React, { useRef, useEffect, useState, Suspense, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, Environment, Center, Grid, Html, useProgress } from "@react-three/drei";
-import { LucideDownload, LucideMaximize2, LucideRotateCcw, LucideZoomIn, LucideZoomOut, LucideMove, LucidePaintbrush } from "lucide-react";
+import { LucideDownload, LucideMaximize2, LucideRotateCcw, LucideZoomIn, LucideZoomOut, LucideMove, LucidePaintbrush, LucideAlertTriangle, LucideRefreshCw } from "lucide-react";
 import * as THREE from "three";
+
+/**
+ * Error boundary to catch Three.js / GLTF loading crashes.
+ * Without this, a failed useGLTF() call would crash the entire React tree.
+ */
+class ModelErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error) {
+    console.warn("ModelViewer 3D load error:", error?.message);
+    this.props.onError?.(error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || null;
+    }
+    return this.props.children;
+  }
+}
 
 // Loading component
 function Loader() {
@@ -424,6 +451,21 @@ export default function ModelViewer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef();
   const [modelInfo, setModelInfo] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  // Reset error state when modelUrl changes
+  useEffect(() => {
+    setLoadError(null);
+    setRetryKey(k => k + 1);
+  }, [modelUrl]);
+
+  const handleRetry = () => {
+    // Clear useGLTF cache for this URL so it re-fetches
+    try { useGLTF.clear(modelUrl); } catch(e) {}
+    setLoadError(null);
+    setRetryKey(k => k + 1);
+  };
   
   // Set global auto rotate
   useEffect(() => {
@@ -491,12 +533,44 @@ export default function ModelViewer({
     );
   }
   
+  // Error fallback UI
+  if (loadError) {
+    return (
+      <div 
+        ref={containerRef}
+        className={`relative bg-gray-900/50 rounded-xl border border-red-900/30 overflow-hidden flex items-center justify-center ${className}`}
+      >
+        <div className="text-center p-6">
+          <LucideAlertTriangle size={40} className="mx-auto mb-3 text-red-400" />
+          <p className="text-white font-medium mb-1">Model could not be loaded</p>
+          <p className="text-gray-400 text-sm mb-4 max-w-xs">
+            {loadError.message?.includes('Failed to fetch')
+              ? 'The AI service may not be running. Start the AI service and try again.'
+              : 'The model file may be unavailable or corrupted.'}
+          </p>
+          <button
+            onClick={handleRetry}
+            className="px-4 py-2 bg-lime-600 hover:bg-lime-500 text-white rounded-lg text-sm flex items-center gap-2 mx-auto transition-colors"
+          >
+            <LucideRefreshCw size={14} />
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       ref={containerRef}
       className={`relative bg-gray-900/50 rounded-xl border border-gray-800/30 overflow-hidden ${className}`}
     >
-      {/* 3D Canvas */}
+      {/* 3D Canvas — wrapped in ErrorBoundary to catch GLTF load failures */}
+      <ModelErrorBoundary
+        key={retryKey}
+        onError={(err) => setLoadError(err || new Error('Model load failed'))}
+        fallback={null}
+      >
       <Canvas
         camera={{ position: [0, 0.3, 2.5], fov: 45 }}
         gl={{ antialias: true, preserveDrawingBuffer: true }}
@@ -553,6 +627,7 @@ export default function ModelViewer({
           <CameraControls controlsRef={controlsRef} enableRotate={!isPaintMode} />
         </Suspense>
       </Canvas>
+      </ModelErrorBoundary>
       
       {/* Paint mode indicator */}
       {isPaintMode && (
