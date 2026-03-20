@@ -22,8 +22,8 @@ import { LogoIcon } from "../Components/Logo";
 import { useTheme } from "../contexts/ThemeContext";
 
 // App version and download info
-const APP_VERSION = "1.0.0";
-const RELEASE_DATE = "2026-01-09";
+const APP_VERSION = "2.0.0";
+const RELEASE_DATE = "2026-03-20";
 const GITHUB_RELEASE_URL = `https://github.com/DanShimmer/Project-3D-model/releases/download/v${APP_VERSION}`;
 
 const PLATFORMS = [
@@ -37,14 +37,14 @@ const PLATFORMS = [
         type: "installer",
         label: "Installer (.exe)",
         filename: `Polyva-3D-${APP_VERSION}-x64-Setup.exe`,
-        size: "~85 MB",
+        size: "~91 MB",
         recommended: true
       },
       {
         type: "portable",
         label: "Portable (.exe)",
         filename: `Polyva-3D-${APP_VERSION}-x64-Portable.exe`,
-        size: "~80 MB",
+        size: "~91 MB",
         recommended: false
       }
     ]
@@ -59,14 +59,14 @@ const PLATFORMS = [
         type: "dmg",
         label: "DMG Installer",
         filename: `Polyva-3D-${APP_VERSION}-arm64.dmg`,
-        size: "~90 MB",
+        size: "~104 MB",
         recommended: true
       },
       {
         type: "zip",
         label: "ZIP Archive",
         filename: `Polyva-3D-${APP_VERSION}-arm64.zip`,
-        size: "~88 MB",
+        size: "~113 MB",
         recommended: false
       }
     ]
@@ -80,15 +80,15 @@ const PLATFORMS = [
       {
         type: "appimage",
         label: "AppImage",
-        filename: `Polyva-3D-${APP_VERSION}-x64.AppImage`,
-        size: "~95 MB",
+        filename: `Polyva-3D-${APP_VERSION}-x86_64.AppImage`,
+        size: "~97 MB",
         recommended: true
       },
       {
         type: "deb",
         label: "Debian (.deb)",
-        filename: `Polyva-3D-${APP_VERSION}-x64.deb`,
-        size: "~85 MB",
+        filename: `Polyva-3D-${APP_VERSION}-amd64.deb`,
+        size: "~80 MB",
         recommended: false
       }
     ]
