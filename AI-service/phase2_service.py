@@ -346,11 +346,11 @@ def _compute_humanoid_joints(bounds_min, bounds_max):
     height = bounds_max[1] - bounds_min[1]
     base_y = bounds_min[1]
     
-    w = bounds_max[0] - bounds_min[0]
-    shoulder_half = w * 0.35
-    hip_half = w * 0.15
+    hw = (bounds_max[0] - bounds_min[0]) / 2  # half-width (center to arm tip in T-pose)
+    hip_half = hw * 0.18
     
     # Joint positions in world space (Y-up)
+    # Arms are HORIZONTAL for T-pose models — bones stay near shoulder height
     joints = [
         # (name, parent_idx, [x, y, z])
         ("root",        -1, [cx, base_y + height * 0.0,  cz]),
@@ -360,16 +360,16 @@ def _compute_humanoid_joints(bounds_min, bounds_max):
         ("spine2",       3, [cx, base_y + height * 0.72, cz]),
         ("neck",         4, [cx, base_y + height * 0.82, cz]),
         ("head",         5, [cx, base_y + height * 0.90, cz]),
-        # Left arm
-        ("shoulder_l",   4, [cx - shoulder_half * 0.3, base_y + height * 0.78, cz]),
-        ("arm_l",        7, [cx - shoulder_half,        base_y + height * 0.76, cz]),
-        ("forearm_l",    8, [cx - shoulder_half * 1.4,  base_y + height * 0.60, cz]),
-        ("hand_l",       9, [cx - shoulder_half * 1.6,  base_y + height * 0.48, cz]),
-        # Right arm
-        ("shoulder_r",   4, [cx + shoulder_half * 0.3, base_y + height * 0.78, cz]),
-        ("arm_r",       11, [cx + shoulder_half,        base_y + height * 0.76, cz]),
-        ("forearm_r",   12, [cx + shoulder_half * 1.4,  base_y + height * 0.60, cz]),
-        ("hand_r",      13, [cx + shoulder_half * 1.6,  base_y + height * 0.48, cz]),
+        # Left arm — horizontal for T-pose
+        ("shoulder_l",   4, [cx - hw * 0.22, base_y + height * 0.78, cz]),
+        ("arm_l",        7, [cx - hw * 0.45, base_y + height * 0.77, cz]),
+        ("forearm_l",    8, [cx - hw * 0.70, base_y + height * 0.76, cz]),
+        ("hand_l",       9, [cx - hw * 0.92, base_y + height * 0.75, cz]),
+        # Right arm — horizontal for T-pose
+        ("shoulder_r",   4, [cx + hw * 0.22, base_y + height * 0.78, cz]),
+        ("arm_r",       11, [cx + hw * 0.45, base_y + height * 0.77, cz]),
+        ("forearm_r",   12, [cx + hw * 0.70, base_y + height * 0.76, cz]),
+        ("hand_r",      13, [cx + hw * 0.92, base_y + height * 0.75, cz]),
         # Left leg
         ("thigh_l",      1, [cx - hip_half, base_y + height * 0.42, cz]),
         ("shin_l",      15, [cx - hip_half, base_y + height * 0.22, cz]),
@@ -465,7 +465,7 @@ def _compute_vertex_weights(positions, joints, character_type):
     bone_lengths = np.linalg.norm(bone_vecs, axis=1)
     valid_lengths = bone_lengths[bone_lengths > 1e-6]
     avg_bone_len = float(valid_lengths.mean()) if len(valid_lengths) > 0 else 0.1
-    sigma = avg_bone_len * 1.2  # Gaussian sigma — controls falloff width
+    sigma = avg_bone_len * 1.5  # Gaussian sigma — wider for smoother weight transitions
     sigma_sq_2 = 2.0 * sigma * sigma
     
     print(f"    📊 Avg bone length: {avg_bone_len:.4f}, sigma: {sigma:.4f}")
@@ -652,51 +652,54 @@ def _inverse_bind_matrix(tx, ty, tz):
 
 def rig_model_glb(input_path: str, output_path: str, character_type: str, markers=None):
     """
-    Real implementation: add a skeleton (skin) to a GLB model.
-    
-    Steps:
-    1. Parse the GLB file
-    2. Compute bounding box from mesh positions
-    3. Create skeleton joints based on character type
-    4. Compute per-vertex bone weights
-    5. Add skin, joints, weights to the glTF structure
-    6. Write the modified GLB
-    
-    Returns: dict with success status and bone list
+    Add a skeleton (skin) to a GLB model.
+    Processes ALL meshes and ALL primitives to prevent mesh tearing.
     """
     print(f"  🦴 Rigging model: {input_path}")
     print(f"  📐 Character type: {character_type}")
     
     gltf, bin_data = _read_glb(input_path)
     
-    # Find mesh and its position accessor
-    mesh = gltf["meshes"][0]
-    primitive = mesh["primitives"][0]
-    pos_accessor_idx = primitive["attributes"]["POSITION"]
-    pos_accessor = gltf["accessors"][pos_accessor_idx]
+    # ── Collect ALL primitives and their vertex data ──
+    primitives_info = []
+    all_positions = []
     
-    pos_bv = gltf["bufferViews"][pos_accessor["bufferView"]]
-    pos_offset = pos_bv.get("byteOffset", 0) + pos_accessor.get("byteOffset", 0)
-    pos_count = pos_accessor["count"]
-    pos_stride = pos_bv.get("byteStride", 12)  # Default: tightly packed 3 floats
+    for mesh_idx, mesh in enumerate(gltf.get("meshes", [])):
+        for prim_idx, prim in enumerate(mesh.get("primitives", [])):
+            attrs = prim.get("attributes", {})
+            if "POSITION" not in attrs:
+                continue
+            pos_acc = gltf["accessors"][attrs["POSITION"]]
+            pos_bv = gltf["bufferViews"][pos_acc["bufferView"]]
+            pos_off = pos_bv.get("byteOffset", 0) + pos_acc.get("byteOffset", 0)
+            pos_cnt = pos_acc["count"]
+            pos_stride = pos_bv.get("byteStride", 12)
+            
+            positions = []
+            for i in range(pos_cnt):
+                off = pos_off + i * pos_stride
+                x, y, z = struct.unpack_from('<fff', bin_data, off)
+                positions.extend([x, y, z])
+            
+            all_positions.extend(positions)
+            primitives_info.append({"prim": prim, "pos_count": pos_cnt})
     
-    # Read vertex positions
-    positions = []
-    for i in range(pos_count):
-        off = pos_offset + i * pos_stride
-        x, y, z = struct.unpack_from('<fff', bin_data, off)
-        positions.extend([x, y, z])
+    total_verts = len(all_positions) // 3
+    if total_verts == 0:
+        return {"success": False, "error": "No vertices found in model"}
     
-    # Compute bounding box
-    xs = positions[0::3]
-    ys = positions[1::3]
-    zs = positions[2::3]
+    print(f"  📦 Found {len(primitives_info)} primitive(s), {total_verts} total vertices")
+    
+    # ── Compute bounding box from ALL vertices ──
+    xs = all_positions[0::3]
+    ys = all_positions[1::3]
+    zs = all_positions[2::3]
     bounds_min = [min(xs), min(ys), min(zs)]
     bounds_max = [max(xs), max(ys), max(zs)]
     
     print(f"  📏 Mesh bounds: min={[round(v,3) for v in bounds_min]} max={[round(v,3) for v in bounds_max]}")
     
-    # Compute joint positions
+    # ── Compute joint positions ──
     if character_type == "quadruped":
         joints = _compute_quadruped_joints(bounds_min, bounds_max)
     else:
@@ -704,22 +707,29 @@ def rig_model_glb(input_path: str, output_path: str, character_type: str, marker
     
     num_joints = len(joints)
     bone_names = [j[0] for j in joints]
-    print(f"  🦴 Created {num_joints} bones: {bone_names[:6]}...")
+    print(f"  🦴 Created {num_joints} bones: {bone_names[:8]}...")
     
-    # Compute vertex weights (bone-segment distance + Gaussian falloff)
-    joint_indices, joint_weights = _compute_vertex_weights(positions, joints, character_type)
-    print(f"  ⚖️ Computed weights for {pos_count} vertices")
+    # ── Compute vertex weights for ALL vertices at once ──
+    joint_indices, joint_weights = _compute_vertex_weights(all_positions, joints, character_type)
+    print(f"  ⚖️ Computed weights for {total_verts} vertices across {len(primitives_info)} primitive(s)")
     
-    # Read mesh indices for weight smoothing
-    mesh_indices = _read_mesh_indices(gltf, bin_data, primitive)
-    if mesh_indices is not None:
-        print(f"  🔗 Read {len(mesh_indices)} triangle indices for smoothing")
+    # ── Gather ALL triangle indices for weight smoothing ──
+    all_indices = []
+    vert_offset = 0
+    for info in primitives_info:
+        prim_indices = _read_mesh_indices(gltf, bin_data, info["prim"])
+        if prim_indices:
+            all_indices.extend([idx + vert_offset for idx in prim_indices])
+        vert_offset += info["pos_count"]
+    
+    if all_indices:
+        print(f"  🔗 Read {len(all_indices)} triangle indices for smoothing")
         joint_indices, joint_weights = _smooth_vertex_weights(
-            joint_indices, joint_weights, mesh_indices,
-            pos_count, num_joints, iterations=2, strength=0.5
+            joint_indices, joint_weights, all_indices,
+            total_verts, num_joints, iterations=3, strength=0.65
         )
     else:
-        print(f"  ⚠️ No index buffer — skipping weight smoothing")
+        print(f"  ⚠️ No index buffers — skipping weight smoothing")
     
     # --- Build glTF skin data ---
     
@@ -774,27 +784,35 @@ def rig_model_glb(input_path: str, output_path: str, character_type: str, marker
     ibm_bv_idx = _add_buffer_view(gltf, ibm_offset, len(ibm_data))
     ibm_acc_idx = _add_accessor(gltf, ibm_bv_idx, 5126, num_joints, "MAT4")  # 5126 = FLOAT
     
-    # 3. Create JOINTS_0 attribute (4 joint indices per vertex, UNSIGNED_SHORT)
-    joints_data = bytearray()
-    for j4 in joint_indices:
-        joints_data += struct.pack('<4H', *[min(j, num_joints - 1) for j in j4])
+    # ── Write JOINTS_0 + WEIGHTS_0 for EACH primitive ──
+    vert_offset = 0
+    for info in primitives_info:
+        cnt = info["pos_count"]
+        prim = info["prim"]
+        prim_ji = joint_indices[vert_offset:vert_offset + cnt]
+        prim_jw = joint_weights[vert_offset:vert_offset + cnt]
+        
+        # JOINTS_0 (4 joint indices per vertex, UNSIGNED_SHORT)
+        joints_data = bytearray()
+        for j4 in prim_ji:
+            joints_data += struct.pack('<4H', *[min(j, num_joints - 1) for j in j4])
+        joints_offset = _append_to_buffer(bin_data, bytes(joints_data), gltf)
+        joints_bv_idx = _add_buffer_view(gltf, joints_offset, len(joints_data))
+        joints_acc_idx = _add_accessor(gltf, joints_bv_idx, 5123, cnt, "VEC4")
+        
+        # WEIGHTS_0 (4 weights per vertex, FLOAT)
+        weights_data = bytearray()
+        for w4 in prim_jw:
+            weights_data += struct.pack('<4f', *w4)
+        weights_offset = _append_to_buffer(bin_data, bytes(weights_data), gltf)
+        weights_bv_idx = _add_buffer_view(gltf, weights_offset, len(weights_data))
+        weights_acc_idx = _add_accessor(gltf, weights_bv_idx, 5126, cnt, "VEC4")
+        
+        prim["attributes"]["JOINTS_0"] = joints_acc_idx
+        prim["attributes"]["WEIGHTS_0"] = weights_acc_idx
+        vert_offset += cnt
     
-    joints_offset = _append_to_buffer(bin_data, bytes(joints_data), gltf)
-    joints_bv_idx = _add_buffer_view(gltf, joints_offset, len(joints_data))
-    joints_acc_idx = _add_accessor(gltf, joints_bv_idx, 5123, pos_count, "VEC4")  # 5123 = UNSIGNED_SHORT
-    
-    # 4. Create WEIGHTS_0 attribute (4 weights per vertex, FLOAT)
-    weights_data = bytearray()
-    for w4 in joint_weights:
-        weights_data += struct.pack('<4f', *w4)
-    
-    weights_offset = _append_to_buffer(bin_data, bytes(weights_data), gltf)
-    weights_bv_idx = _add_buffer_view(gltf, weights_offset, len(weights_data))
-    weights_acc_idx = _add_accessor(gltf, weights_bv_idx, 5126, pos_count, "VEC4")  # 5126 = FLOAT
-    
-    # 5. Add attributes to mesh primitive
-    primitive["attributes"]["JOINTS_0"] = joints_acc_idx
-    primitive["attributes"]["WEIGHTS_0"] = weights_acc_idx
+    print(f"  ✅ Skinning data written to {len(primitives_info)} primitive(s)")
     
     # 6. Create skin
     joint_node_indices = list(range(joint_node_start, joint_node_start + num_joints))
@@ -810,12 +828,10 @@ def rig_model_glb(input_path: str, output_path: str, character_type: str, marker
         "skeleton": root_joint_idx
     })
     
-    # 7. Assign skin to the mesh node
-    # Find the node that references this mesh
+    # 7. Assign skin to ALL mesh nodes (prevents tearing across sub-meshes)
     for node in gltf["nodes"][:joint_node_start]:
-        if "mesh" in node and node["mesh"] == 0:
+        if "mesh" in node:
             node["skin"] = skin_idx
-            break
     
     # Write output
     _write_glb(output_path, gltf, bytes(bin_data))
@@ -829,7 +845,8 @@ def rig_model_glb(input_path: str, output_path: str, character_type: str, marker
         "bones": bone_names,
         "character_type": character_type,
         "num_joints": num_joints,
-        "num_vertices_weighted": pos_count
+        "num_vertices_weighted": total_verts,
+        "num_primitives_skinned": len(primitives_info)
     }
 
 
@@ -926,14 +943,15 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
     identity_q = [0, 0, 0, 1]
     keyframes = {}
     
-    # Number of keyframes
-    n = 12
+    # Number of keyframes — 24 for smoother motion with LINEAR interpolation
+    n = 24
     times = [i * duration / (n - 1) for i in range(n)]
     
     for bone in bone_names:
         keyframes[bone] = {
             "times": times,
-            "rotations": [identity_q[:] for _ in range(n)]
+            "rotations": [identity_q[:] for _ in range(n)],
+            "translations": None  # Set for bones that need translation (e.g. hip bounce)
         }
     
     if animation_id == "walk":
@@ -1242,6 +1260,18 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                 if "arm_r" in keyframes:
                     keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(-1.2 * (1-p), 0, -0.4 * (1-p))
     
+    # ── Post-processing: add hip bounce for locomotion ──
+    if animation_id in ("walk", "run", "dance"):
+        if "hips" in keyframes:
+            n_frames = len(keyframes["hips"]["times"])
+            amp = {"walk": 0.008, "run": 0.015, "dance": 0.01}.get(animation_id, 0.008)
+            keyframes["hips"]["translations"] = []
+            for i in range(n_frames):
+                t = i / (n_frames - 1)
+                bounce = math.sin(t * 4 * math.pi) * amp
+                sway_x = math.sin(t * 2 * math.pi) * amp * 0.3
+                keyframes["hips"]["translations"].append([sway_x, bounce, 0])
+    
     return keyframes
 
 
@@ -1298,50 +1328,76 @@ def animate_model_glb(input_path: str, output_path: str, animation_id: str, anim
         times = kf["times"]
         rotations = kf["rotations"]
         
-        # Check if this bone has any actual motion (not all identity)
-        has_motion = False
+        # ── Rotation channel ──
+        has_rotation = False
         for rot in rotations:
             if abs(rot[0]) > 0.001 or abs(rot[1]) > 0.001 or abs(rot[2]) > 0.001 or abs(rot[3] - 1.0) > 0.001:
-                has_motion = True
+                has_rotation = True
                 break
         
-        if not has_motion:
-            continue
+        if has_rotation:
+            time_data = struct.pack(f'<{len(times)}f', *times)
+            time_offset = _append_to_buffer(bin_data, time_data, gltf)
+            time_bv_idx = _add_buffer_view(gltf, time_offset, len(time_data))
+            time_acc_idx = _add_accessor(
+                gltf, time_bv_idx, 5126, len(times), "SCALAR",
+                min_val=[min(times)], max_val=[max(times)]
+            )
+            
+            rot_flat = []
+            for r in rotations:
+                rot_flat.extend(r)
+            rot_data = struct.pack(f'<{len(rot_flat)}f', *rot_flat)
+            rot_offset = _append_to_buffer(bin_data, rot_data, gltf)
+            rot_bv_idx = _add_buffer_view(gltf, rot_offset, len(rot_data))
+            rot_acc_idx = _add_accessor(gltf, rot_bv_idx, 5126, len(rotations), "VEC4")
+            
+            samplers.append({
+                "input": time_acc_idx,
+                "output": rot_acc_idx,
+                "interpolation": "LINEAR"
+            })
+            channels.append({
+                "sampler": sampler_idx,
+                "target": {"node": node_idx, "path": "rotation"}
+            })
+            sampler_idx += 1
         
-        # Write time values to buffer
-        time_data = struct.pack(f'<{len(times)}f', *times)
-        time_offset = _append_to_buffer(bin_data, time_data, gltf)
-        time_bv_idx = _add_buffer_view(gltf, time_offset, len(time_data))
-        time_acc_idx = _add_accessor(
-            gltf, time_bv_idx, 5126, len(times), "SCALAR",
-            min_val=[min(times)], max_val=[max(times)]
-        )
-        
-        # Write rotation quaternions to buffer
-        rot_flat = []
-        for r in rotations:
-            rot_flat.extend(r)
-        rot_data = struct.pack(f'<{len(rot_flat)}f', *rot_flat)
-        rot_offset = _append_to_buffer(bin_data, rot_data, gltf)
-        rot_bv_idx = _add_buffer_view(gltf, rot_offset, len(rot_data))
-        rot_acc_idx = _add_accessor(gltf, rot_bv_idx, 5126, len(rotations), "VEC4")
-        
-        # Create sampler
-        samplers.append({
-            "input": time_acc_idx,
-            "output": rot_acc_idx,
-            "interpolation": "LINEAR"
-        })
-        
-        # Create channel
-        channels.append({
-            "sampler": sampler_idx,
-            "target": {
-                "node": node_idx,
-                "path": "rotation"
-            }
-        })
-        sampler_idx += 1
+        # ── Translation channel (hip bounce, etc.) ──
+        translations = kf.get("translations")
+        if translations:
+            rest_trans = gltf["nodes"][node_idx].get("translation", [0, 0, 0])
+            
+            t_time_data = struct.pack(f'<{len(times)}f', *times)
+            t_time_offset = _append_to_buffer(bin_data, t_time_data, gltf)
+            t_time_bv = _add_buffer_view(gltf, t_time_offset, len(t_time_data))
+            t_time_acc = _add_accessor(
+                gltf, t_time_bv, 5126, len(times), "SCALAR",
+                min_val=[min(times)], max_val=[max(times)]
+            )
+            
+            trans_flat = []
+            for dt in translations:
+                trans_flat.extend([
+                    rest_trans[0] + dt[0],
+                    rest_trans[1] + dt[1],
+                    rest_trans[2] + dt[2]
+                ])
+            trans_data = struct.pack(f'<{len(trans_flat)}f', *trans_flat)
+            trans_offset = _append_to_buffer(bin_data, trans_data, gltf)
+            trans_bv = _add_buffer_view(gltf, trans_offset, len(trans_data))
+            trans_acc = _add_accessor(gltf, trans_bv, 5126, len(translations), "VEC3")
+            
+            samplers.append({
+                "input": t_time_acc,
+                "output": trans_acc,
+                "interpolation": "LINEAR"
+            })
+            channels.append({
+                "sampler": sampler_idx,
+                "target": {"node": node_idx, "path": "translation"}
+            })
+            sampler_idx += 1
     
     if not channels:
         print("  ⚠️ No animated bones found for this animation")
