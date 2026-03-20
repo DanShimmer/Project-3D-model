@@ -43,7 +43,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "public/icon.png"
+      "public/icon.ico",
+      "public/icon.svg"
     ],
     "extraResources": [
       {
