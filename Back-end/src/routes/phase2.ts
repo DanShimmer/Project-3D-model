@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
 import axios from "axios";
-import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = Router();
 
@@ -8,8 +7,10 @@ const router = Router();
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 
 /**
- * Proxy all Phase 2 requests to the AI Service
- * The AI service handles: texture, rig, animate, remesh, export, health
+ * Proxy all Phase 2 requests to the AI Service.
+ * Auth is NOT required here — the user is already authenticated at the page level
+ * (GeneratePage redirects to /login if not authenticated).
+ * These routes are pure proxies to the local AI service for processing tasks.
  */
 
 // Phase 2 Health Check (no auth required)
@@ -30,7 +31,7 @@ router.get("/health", async (req: Request, res: Response) => {
 });
 
 // Apply Texture
-router.post("/texture", authMiddleware, async (req: Request, res: Response) => {
+router.post("/texture", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
       `${AI_SERVICE_URL}/api/phase2/texture`,
@@ -48,7 +49,7 @@ router.post("/texture", authMiddleware, async (req: Request, res: Response) => {
 });
 
 // Generate PBR Maps
-router.post("/pbr", authMiddleware, async (req: Request, res: Response) => {
+router.post("/pbr", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
       `${AI_SERVICE_URL}/api/phase2/pbr`,
@@ -66,7 +67,7 @@ router.post("/pbr", authMiddleware, async (req: Request, res: Response) => {
 });
 
 // Apply Rig
-router.post("/rig", authMiddleware, async (req: Request, res: Response) => {
+router.post("/rig", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
       `${AI_SERVICE_URL}/api/phase2/rig`,
@@ -101,7 +102,7 @@ router.get("/animations", async (req: Request, res: Response) => {
 });
 
 // Apply Animation
-router.post("/animate", authMiddleware, async (req: Request, res: Response) => {
+router.post("/animate", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
       `${AI_SERVICE_URL}/api/phase2/animate`,
@@ -119,7 +120,7 @@ router.post("/animate", authMiddleware, async (req: Request, res: Response) => {
 });
 
 // Remesh Model
-router.post("/remesh", authMiddleware, async (req: Request, res: Response) => {
+router.post("/remesh", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
       `${AI_SERVICE_URL}/api/phase2/remesh`,
@@ -137,7 +138,7 @@ router.post("/remesh", authMiddleware, async (req: Request, res: Response) => {
 });
 
 // Export Model
-router.post("/export", authMiddleware, async (req: Request, res: Response) => {
+router.post("/export", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
       `${AI_SERVICE_URL}/api/phase2/export`,
