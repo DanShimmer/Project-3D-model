@@ -495,6 +495,20 @@ def _compute_vertex_weights(positions, joints, character_type):
     # Gaussian weights: exp(-d² / 2σ²)
     raw_weights = np.exp(-dist_sq / sigma_sq_2)    # (N, J)
     
+    # Power-sharpen weights to amplify differences between bones.
+    # Raw Gaussian gives e.g. [0.30, 0.25, 0.20, 0.15] → nearly equal.
+    # Raising to power 3: [0.027, 0.016, 0.008, 0.003] → much more distinct.
+    # This is critical for bulky/armored models where multiple bones are
+    # nearly equidistant from surface vertices.
+    raw_weights = raw_weights ** 3
+    
+    # Additionally boost nearest bone by 10x for decisive dominance.
+    # Combined with power-sharpening, this gives the nearest bone 85-95%
+    # of the total weight, preventing the stretching that occurs when a
+    # vertex is split evenly between bones that rotate differently.
+    nearest_bone = np.argmin(dist_sq, axis=1)  # (N,)
+    raw_weights[np.arange(num_verts), nearest_bone] *= 10.0
+    
     # Pick top 4 bones per vertex
     if num_joints <= 4:
         top4_idx = np.tile(np.arange(num_joints), (num_verts, 1))
@@ -726,7 +740,7 @@ def rig_model_glb(input_path: str, output_path: str, character_type: str, marker
         print(f"  🔗 Read {len(all_indices)} triangle indices for smoothing")
         joint_indices, joint_weights = _smooth_vertex_weights(
             joint_indices, joint_weights, all_indices,
-            total_verts, num_joints, iterations=3, strength=0.65
+            total_verts, num_joints, iterations=3, strength=0.3
         )
     else:
         print(f"  ⚠️ No index buffers — skipping weight smoothing")
@@ -1001,7 +1015,11 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
             if "spine1" in keyframes:
                 keyframes["spine1"]["rotations"][i] = _quaternion_from_euler(0, -phase * 0.02, 0)
             
-            # --- Arms swing opposite to legs ---
+            # --- Shoulders + Arms swing opposite to legs ---
+            if "shoulder_l" in keyframes:
+                keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(-phase * 0.10, 0, -phase * 0.03)
+            if "shoulder_r" in keyframes:
+                keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(phase * 0.10, 0, phase * 0.03)
             if "arm_l" in keyframes:
                 keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(-phase * 0.25, 0, -0.05)
             if "arm_r" in keyframes:
@@ -1031,6 +1049,10 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                 keyframes["shin_l"]["rotations"][i] = _quaternion_from_euler(max(0, -phase) * 0.9, 0, 0)
             if "shin_r" in keyframes:
                 keyframes["shin_r"]["rotations"][i] = _quaternion_from_euler(max(0, phase) * 0.9, 0, 0)
+            if "shoulder_l" in keyframes:
+                keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(-phase * 0.18, 0, 0)
+            if "shoulder_r" in keyframes:
+                keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(phase * 0.18, 0, 0)
             if "arm_l" in keyframes:
                 keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(-phase * 0.6, 0, 0)
             if "arm_r" in keyframes:
@@ -1039,6 +1061,11 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                 keyframes["forearm_l"]["rotations"][i] = _quaternion_from_euler(-0.6, 0, 0)
             if "forearm_r" in keyframes:
                 keyframes["forearm_r"]["rotations"][i] = _quaternion_from_euler(-0.6, 0, 0)
+            if "hips" in keyframes:
+                phase2 = math.sin(t * 4 * math.pi)
+                keyframes["hips"]["rotations"][i] = _quaternion_from_euler(
+                    phase2 * 0.03, phase * 0.08, phase * 0.03
+                )
             if "spine" in keyframes:
                 keyframes["spine"]["rotations"][i] = _quaternion_from_euler(0.05, -phase * 0.08, 0)
     
@@ -1047,30 +1074,49 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
             t = i / (n - 1)
             
             if t < 0.3:
-                # Wind up — raise right arm
+                # Wind up — raise right arm, twist torso back
                 p = t / 0.3
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-p * 0.35, 0, -p * 0.08)
                 if "arm_r" in keyframes:
                     keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(-p * 1.2, 0, -p * 0.2)
                 if "forearm_r" in keyframes:
                     keyframes["forearm_r"]["rotations"][i] = _quaternion_from_euler(-p * 0.7, 0, 0)
+                if "hips" in keyframes:
+                    keyframes["hips"]["rotations"][i] = _quaternion_from_euler(0, p * 0.12, 0)
+                if "spine" in keyframes:
+                    keyframes["spine"]["rotations"][i] = _quaternion_from_euler(0, p * 0.08, 0)
                 if "spine2" in keyframes:
                     keyframes["spine2"]["rotations"][i] = _quaternion_from_euler(0, p * 0.25, 0)
             elif t < 0.5:
-                # Strike forward
+                # Strike forward — swing arm, twist torso
                 p = (t - 0.3) / 0.2
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-0.35 + p * 0.55, 0, -0.08 + p * 0.08)
                 if "arm_r" in keyframes:
                     keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(-1.2 + p * 1.8, 0, -0.2 + p * 0.2)
                 if "forearm_r" in keyframes:
                     keyframes["forearm_r"]["rotations"][i] = _quaternion_from_euler(-0.7 + p * 0.7, 0, 0)
+                if "hips" in keyframes:
+                    keyframes["hips"]["rotations"][i] = _quaternion_from_euler(0, 0.12 - p * 0.24, 0)
+                if "spine" in keyframes:
+                    keyframes["spine"]["rotations"][i] = _quaternion_from_euler(p * 0.06, 0.08 - p * 0.16, 0)
                 if "spine2" in keyframes:
-                    keyframes["spine2"]["rotations"][i] = _quaternion_from_euler(p * 0.15, 0.3 - p * 0.6, 0)
+                    keyframes["spine2"]["rotations"][i] = _quaternion_from_euler(p * 0.15, 0.25 - p * 0.55, 0)
             else:
-                # Recovery
+                # Recovery — return to rest
                 p = (t - 0.5) / 0.5
+                ease = 1 - p  # linear ease-out
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(0.2 * ease, 0, 0)
                 if "arm_r" in keyframes:
-                    keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(0.6 * (1-p), 0, 0)
+                    keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(0.6 * ease, 0, 0)
+                if "hips" in keyframes:
+                    keyframes["hips"]["rotations"][i] = _quaternion_from_euler(0, -0.12 * ease, 0)
+                if "spine" in keyframes:
+                    keyframes["spine"]["rotations"][i] = _quaternion_from_euler(0.06 * ease, -0.08 * ease, 0)
                 if "spine2" in keyframes:
-                    keyframes["spine2"]["rotations"][i] = _quaternion_from_euler(0.12 * (1-p), -0.25 * (1-p), 0)
+                    keyframes["spine2"]["rotations"][i] = _quaternion_from_euler(0.12 * ease, -0.30 * ease, 0)
     
     elif animation_id == "dance":
         for i in range(n):
@@ -1082,6 +1128,10 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                 keyframes["hips"]["rotations"][i] = _quaternion_from_euler(0, phase1 * 0.2, phase2 * 0.1)
             if "spine" in keyframes:
                 keyframes["spine"]["rotations"][i] = _quaternion_from_euler(0, -phase1 * 0.15, 0)
+            if "shoulder_l" in keyframes:
+                keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(phase2 * 0.15, 0, phase1 * 0.08)
+            if "shoulder_r" in keyframes:
+                keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-phase2 * 0.15, 0, -phase1 * 0.08)
             if "arm_l" in keyframes:
                 keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(phase2 * 0.5 - 0.8, 0, phase1 * 0.3)
             if "arm_r" in keyframes:
@@ -1129,6 +1179,14 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                 keyframes["hips"]["rotations"][i] = _quaternion_from_euler(crouch * 0.4, 0, 0)
             if "spine" in keyframes:
                 keyframes["spine"]["rotations"][i] = _quaternion_from_euler(crouch * 0.3, 0, 0)
+            if "shoulder_l" in keyframes:
+                keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(crouch * 0.1, 0, crouch * 0.05)
+            if "shoulder_r" in keyframes:
+                keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(crouch * 0.1, 0, -crouch * 0.05)
+            if "arm_l" in keyframes:
+                keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(crouch * 0.2, 0, crouch * 0.1)
+            if "arm_r" in keyframes:
+                keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(crouch * 0.2, 0, -crouch * 0.1)
             if "thigh_l" in keyframes:
                 keyframes["thigh_l"]["rotations"][i] = _quaternion_from_euler(crouch * 0.8, 0, 0)
             if "thigh_r" in keyframes:
@@ -1157,6 +1215,10 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                     keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(0, 0, p * 0.2)
                 if "arm_r" in keyframes:
                     keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(0, 0, -p * 0.15)
+                if "shoulder_l" in keyframes:
+                    keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(0, 0, p * 0.06)
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(0, 0, -p * 0.05)
                     
             elif t < 0.4:
                 # Stagger — knees buckle, lean forward
@@ -1179,6 +1241,10 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                     keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(-p * 0.3, 0, 0.2 + p * 0.3)
                 if "arm_r" in keyframes:
                     keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(-p * 0.2, 0, -0.15 - p * 0.25)
+                if "shoulder_l" in keyframes:
+                    keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(-p * 0.08, 0, 0.06 + p * 0.08)
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-p * 0.06, 0, -0.05 - p * 0.06)
                     
             elif t < 0.7:
                 # Collapse — fall to the side/forward
@@ -1206,6 +1272,10 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                     keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(-0.3 - ease * 0.2, 0, 0.5 + ease * 0.3)
                 if "arm_r" in keyframes:
                     keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(-0.2 - ease * 0.15, 0, -0.4 - ease * 0.2)
+                if "shoulder_l" in keyframes:
+                    keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(-0.08 - ease * 0.05, 0, 0.14 + ease * 0.08)
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-0.06 - ease * 0.04, 0, -0.11 - ease * 0.06)
                     
             else:
                 # Settled on ground — hold final pose with tiny settling motion
@@ -1229,6 +1299,10 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                     keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(-0.5, 0, 0.8)
                 if "arm_r" in keyframes:
                     keyframes["arm_r"]["rotations"][i] = _quaternion_from_euler(-0.35, 0, -0.6)
+                if "shoulder_l" in keyframes:
+                    keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(-0.13, 0, 0.22)
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-0.10, 0, -0.17)
                 if "forearm_l" in keyframes:
                     keyframes["forearm_l"]["rotations"][i] = _quaternion_from_euler(-0.3, 0, 0)
                 if "forearm_r" in keyframes:
@@ -1243,10 +1317,18 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                     keyframes["spine"]["rotations"][i] = _quaternion_from_euler(-p * 0.5, 0, 0)
                 if "head" in keyframes:
                     keyframes["head"]["rotations"][i] = _quaternion_from_euler(-p * 0.8, 0, 0)
+                if "shoulder_l" in keyframes:
+                    keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(0, 0, p * 0.1)
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(0, 0, -p * 0.1)
             elif t < 0.6:
                 p = (t - 0.3) / 0.3
                 if "spine" in keyframes:
                     keyframes["spine"]["rotations"][i] = _quaternion_from_euler(-0.5 + p * 0.8, 0, 0)
+                if "shoulder_l" in keyframes:
+                    keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(-p * 0.3, 0, 0.1 + p * 0.1)
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-p * 0.3, 0, -0.1 - p * 0.1)
                 if "arm_l" in keyframes:
                     keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(-p * 1.2, 0, p * 0.4)
                 if "arm_r" in keyframes:
@@ -1255,6 +1337,10 @@ def _generate_animation_keyframes(animation_id: str, bone_names: list, duration:
                 p = (t - 0.6) / 0.4
                 if "spine" in keyframes:
                     keyframes["spine"]["rotations"][i] = _quaternion_from_euler(0.3 * (1-p), 0, 0)
+                if "shoulder_l" in keyframes:
+                    keyframes["shoulder_l"]["rotations"][i] = _quaternion_from_euler(-0.3 * (1-p), 0, 0.2 * (1-p))
+                if "shoulder_r" in keyframes:
+                    keyframes["shoulder_r"]["rotations"][i] = _quaternion_from_euler(-0.3 * (1-p), 0, -0.2 * (1-p))
                 if "arm_l" in keyframes:
                     keyframes["arm_l"]["rotations"][i] = _quaternion_from_euler(-1.2 * (1-p), 0, 0.4 * (1-p))
                 if "arm_r" in keyframes:
