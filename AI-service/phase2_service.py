@@ -1736,6 +1736,50 @@ export_service = ExportService()
 # API ROUTES
 # ============================================
 
+@phase2_bp.route('/save-painted', methods=['POST'])
+def save_painted_model():
+    """
+    Receive a painted GLB from the frontend (with COLOR_0 vertex colors baked in)
+    and save it to disk so the rig/animate pipeline can use it.
+    Accepts raw binary GLB body with modelId in query string.
+    """
+    try:
+        model_id = request.args.get('modelId', str(uuid.uuid4()))
+        
+        # Accept raw binary GLB
+        glb_data = request.get_data()
+        if not glb_data or len(glb_data) < 12:
+            return jsonify({"ok": False, "error": "No GLB data received"}), 400
+        
+        # Validate GLB magic number
+        magic = struct.unpack_from('<I', glb_data, 0)[0]
+        if magic != 0x46546C67:  # 'glTF'
+            return jsonify({"ok": False, "error": "Invalid GLB format"}), 400
+        
+        # Save to outputs directory
+        painted_dir = OUTPUT_DIR / "painted"
+        painted_dir.mkdir(exist_ok=True)
+        
+        out_name = f"{model_id}_painted.glb"
+        out_path = painted_dir / out_name
+        
+        with open(out_path, 'wb') as f:
+            f.write(glb_data)
+        
+        print(f"  🎨 Saved painted model: {out_path} ({len(glb_data)} bytes)")
+        
+        return jsonify({
+            "ok": True,
+            "painted_model_path": str(out_path),
+            "painted_model_url": f"/outputs/painted/{out_name}",
+            "size": len(glb_data)
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @phase2_bp.route('/health', methods=['GET'])
 def phase2_health():
     """Check Phase 2 service health and GPU status"""

@@ -30,6 +30,30 @@ router.get("/health", async (req: Request, res: Response) => {
   }
 });
 
+// Save Painted Model (receives raw GLB binary, proxies to AI service)
+router.post("/save-painted", async (req: Request, res: Response) => {
+  try {
+    const modelId = req.query.modelId || "";
+    const response = await axios.post(
+      `${AI_SERVICE_URL}/api/phase2/save-painted?modelId=${modelId}`,
+      req.body,
+      {
+        timeout: 60000,
+        headers: { "Content-Type": "application/octet-stream" },
+        maxBodyLength: 50 * 1024 * 1024, // 50MB max
+        maxContentLength: 50 * 1024 * 1024,
+      }
+    );
+    return res.json(response.data);
+  } catch (error: any) {
+    console.error("Phase 2 save-painted error:", error.message);
+    return res.status(error.response?.status || 500).json({
+      ok: false,
+      error: error.response?.data?.error || error.message
+    });
+  }
+});
+
 // Apply Texture
 router.post("/texture", async (req: Request, res: Response) => {
   try {

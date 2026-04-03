@@ -66,7 +66,8 @@ import {
   applyAnimation,
   remeshModel,
   exportModel,
-  downloadModelFile
+  downloadModelFile,
+  uploadPaintedModel
 } from "./api/phase2";
 
 // Generation mode tabs 
@@ -200,6 +201,8 @@ export default function GeneratePage() {
   const [rigConfig, setRigConfig] = useState(null);
   const [isRigging, setIsRigging] = useState(false);
   const [riggedModelPath, setRiggedModelPath] = useState(null); // Path to rigged GLB for animation
+  const [paintedModelPath, setPaintedModelPath] = useState(null); // Path to painted GLB (with vertex colors)
+  const modelViewerRef = useRef(null); // Ref to ModelViewer for GLB export
   // Animation states
   const [showAnimationPanel, setShowAnimationPanel] = useState(false);
   const [currentAnimation, setCurrentAnimation] = useState(null);
@@ -237,11 +240,49 @@ export default function GeneratePage() {
   // Handle paint on model
   const handlePaintModel = (newPaintData) => {
     setPaintedColors(prev => ({ ...prev, ...newPaintData }));
+    // Reset painted model path when new paint strokes are added
+    // (forces re-export before next rig/animate)
+    setPaintedModelPath(null);
   };
   
   // Clear all paint
   const handleClearPaint = () => {
     setPaintedColors({});
+    setPaintedModelPath(null);
+  };
+  
+  /**
+   * Export the current 3D scene (with painted vertex colors) as GLB and upload to server.
+   * Returns the server-side path of the painted model.
+   * This ensures vertex colors (COLOR_0) survive through the rig → animate pipeline.
+   */
+  const exportAndUploadPaintedModel = async () => {
+    if (!modelViewerRef.current) {
+      console.warn("⚠️ ModelViewer ref not available, skipping paint export");
+      return null;
+    }
+    
+    try {
+      console.log("🎨 Exporting painted scene as GLB...");
+      const glbBuffer = await modelViewerRef.current.exportAsGLB();
+      console.log(`🎨 GLB exported: ${glbBuffer.byteLength} bytes`);
+      
+      // Upload to server
+      const modelId = selectedGeneratedModel?.id || "unknown";
+      const result = await uploadPaintedModel(glbBuffer, modelId);
+      
+      if (result.ok && result.painted_model_path) {
+        console.log("✅ Painted model saved to server:", result.painted_model_path);
+        setPaintedModelPath(result.painted_model_path);
+        return result.painted_model_path;
+      } else {
+        console.error("❌ Failed to save painted model:", result.error);
+        return null;
+      }
+    } catch (err) {
+      console.error("❌ Export/upload painted model error:", err);
+      return null;
+    }
   };
   
   // Helper function to determine model type from prompt (same logic as MyStorage)
@@ -1162,8 +1203,10 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
         setIsTexturing(false);
       }
     } else {
-      // Manual paint mode — just mark as textured (painting is done in real-time on the model)
+      // Manual paint mode — mark as textured and export painted model to server
+      // so vertex colors survive through rig/animate pipeline
       setIsTextured(true);
+      setPaintedModelPath(null); // Will be exported on-demand before rig
     }
   };
 
@@ -1206,8 +1249,21 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
       // Focus on selected variant
       setFocusedVariant(selectedGeneratedModel);
       
-      // Get model path
-      const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+      // Get model path — if model has been painted, export and upload first
+      let modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+      
+      // If the model has vertex colors (painted), export the scene with COLOR_0 baked in
+      const hasPaint = isTextured && Object.keys(paintedColors).length > 0;
+      if (hasPaint) {
+        console.log("🎨 Model has paint — exporting painted GLB before rigging...");
+        const savedPath = paintedModelPath || await exportAndUploadPaintedModel();
+        if (savedPath) {
+          modelPath = savedPath;
+          console.log("🎨 Using painted model for rigging:", modelPath);
+        } else {
+          console.warn("⚠️ Could not export painted model, using original");
+        }
+      }
       
       // Call Phase 2 API for rigging with correct parameters
       const result = await applyRig(modelPath, config.type, config.markers || []);
@@ -1920,6 +1976,7 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                       {/* Large model preview - use real ModelViewer for generated models with URL */}
                       {focusedVariant.modelUrl && !focusedVariant.isDemo ? (
                         <ModelViewer
+                          ref={modelViewerRef}
                           modelUrl={focusedVariant.modelUrl}
                           className="w-full h-full min-h-[400px]"
                           autoRotate={!isAnimationPlaying && !isPaintMode}

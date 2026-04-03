@@ -1,8 +1,9 @@
-import React, { useRef, useEffect, useState, Suspense, useCallback } from "react";
+import React, { useRef, useEffect, useState, Suspense, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, Environment, Center, Grid, Html, useProgress } from "@react-three/drei";
 import { LucideDownload, LucideMaximize2, LucideRotateCcw, LucideZoomIn, LucideZoomOut, LucideMove, LucidePaintbrush, LucideAlertTriangle, LucideRefreshCw } from "lucide-react";
 import * as THREE from "three";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 
 /**
  * Error boundary to catch Three.js / GLTF loading crashes.
@@ -45,7 +46,7 @@ function Loader() {
 }
 
 // Paintable 3D Model component with vertex-level brush painting and animation support
-function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onPaint, wireframe, brightness, playAnimation }) {
+function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onPaint, wireframe, brightness, playAnimation, onSceneReady }) {
   const { scene, animations } = useGLTF(url);
   const ref = useRef();
   const { raycaster, camera, gl } = useThree();
@@ -53,6 +54,13 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
   const lastPaintPosRef = useRef(null);
   const mixerRef = useRef(null);
   const actionsRef = useRef([]);
+  
+  // Expose scene to parent for GLB export
+  useEffect(() => {
+    if (scene && onSceneReady) {
+      onSceneReady(scene);
+    }
+  }, [scene, onSceneReady]);
   
   // Animation playback using THREE.AnimationMixer
   useEffect(() => {
@@ -157,7 +165,7 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
     });
   }, [scene, wireframe, brightness]);
 
-  // Paint vertices near the intersection point with brush radius and falloff
+  // Paint vertices near the intersection point with brush radius and smooth Gaussian falloff
   const paintAtPoint = useCallback((intersect) => {
     if (!intersect || !intersect.object || !intersect.object.geometry) return;
     
@@ -179,7 +187,11 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
     const newColor = new THREE.Color(paintColor);
     let painted = false;
     
-    // Paint all vertices within brush radius
+    // Gaussian sigma = radius / 2.5 for smooth falloff (95% strength at center, ~5% at edge)
+    const sigma = radius / 2.5;
+    const sigma2 = sigma * sigma * 2;
+    
+    // Paint all vertices within brush radius with Gaussian falloff
     for (let i = 0; i < posAttr.count; i++) {
       const vx = posAttr.getX(i);
       const vy = posAttr.getY(i);
@@ -188,23 +200,24 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
       const dx = vx - localPoint.x;
       const dy = vy - localPoint.y;
       const dz = vz - localPoint.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const distSq = dx * dx + dy * dy + dz * dz;
       
-      if (dist <= radius) {
-        // Smooth falloff: stronger at center, weaker at edges
-        const falloff = 1.0 - (dist / radius);
-        const strength = falloff * falloff; // Quadratic falloff for smooth edges
+      if (distSq <= radius * radius) {
+        // Gaussian falloff: smooth bell curve, much better than quadratic
+        const strength = Math.exp(-distSq / sigma2);
         
-        // Blend existing color with paint color
+        // Blend existing color with paint color (at least 5% opacity for visible painting)
+        const alpha = Math.max(strength * 0.85, 0.05);
+        
         const existingR = colorAttr.getX(i);
         const existingG = colorAttr.getY(i);
         const existingB = colorAttr.getZ(i);
         
         colorAttr.setXYZ(
           i,
-          existingR + (newColor.r - existingR) * strength,
-          existingG + (newColor.g - existingG) * strength,
-          existingB + (newColor.b - existingB) * strength
+          existingR + (newColor.r - existingR) * alpha,
+          existingG + (newColor.g - existingG) * alpha,
+          existingB + (newColor.b - existingB) * alpha
         );
         painted = true;
       }
@@ -218,22 +231,48 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
     }
   }, [paintColor, brushSize, onPaint]);
 
-  // Raycast and paint at current pointer position
+  // Raycast and paint — with stroke interpolation for smooth continuous strokes
   const doPaint = useCallback((event) => {
     if (!isPaintMode || !paintColor || !ref.current) return;
     
     // Get normalized device coordinates
     const rect = gl.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
+    const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    const mouse = new THREE.Vector2(mouseX, mouseY);
     
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObject(scene, true);
+    // Interpolate between last and current position for smooth strokes
+    const lastPos = lastPaintPosRef.current;
+    const positions = [mouse];
     
-    if (intersects.length > 0) {
-      paintAtPoint(intersects[0]);
+    if (lastPos) {
+      const dx = mouseX - lastPos.x;
+      const dy = mouseY - lastPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // Interpolation step size — smaller = smoother but more raycasts
+      const stepSize = 0.008;
+      if (dist > stepSize) {
+        const steps = Math.min(Math.ceil(dist / stepSize), 20); // Cap at 20 sub-steps
+        positions.length = 0;
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          positions.push(new THREE.Vector2(
+            lastPos.x + dx * t,
+            lastPos.y + dy * t
+          ));
+        }
+      }
+    }
+    
+    lastPaintPosRef.current = { x: mouseX, y: mouseY };
+    
+    // Paint at each interpolated position
+    for (const pos of positions) {
+      raycaster.setFromCamera(pos, camera);
+      const intersects = raycaster.intersectObject(scene, true);
+      if (intersects.length > 0) {
+        paintAtPoint(intersects[0]);
+      }
     }
   }, [isPaintMode, paintColor, scene, raycaster, camera, gl, paintAtPoint]);
 
@@ -430,7 +469,7 @@ function AutoFitCamera() {
 }
 
 // Main Viewer Component
-export default function ModelViewer({ 
+const ModelViewer = forwardRef(function ModelViewer({ 
   modelUrl, 
   className = "",
   showControls = true,
@@ -446,13 +485,53 @@ export default function ModelViewer({
   brightness = 100,
   // Animation props
   playAnimation = false
-}) {
+}, ref) {
   const controlsRef = useRef();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef();
   const [modelInfo, setModelInfo] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
+  const sceneRef = useRef(null);
+  
+  // Expose exportAsGLB to parent via ref
+  useImperativeHandle(ref, () => ({
+    exportAsGLB: () => {
+      return new Promise((resolve, reject) => {
+        if (!sceneRef.current) {
+          reject(new Error("No scene loaded"));
+          return;
+        }
+        const exporter = new GLTFExporter();
+        exporter.parse(
+          sceneRef.current,
+          (result) => {
+            // result is ArrayBuffer for binary=true
+            resolve(result);
+          },
+          (error) => {
+            reject(error);
+          },
+          { binary: true }  // Export as GLB (binary)
+        );
+      });
+    },
+    hasVertexColors: () => {
+      if (!sceneRef.current) return false;
+      let hasPaint = false;
+      sceneRef.current.traverse((child) => {
+        if (child.isMesh && child.geometry?.attributes?.color) {
+          hasPaint = true;
+        }
+      });
+      return hasPaint;
+    }
+  }), []);
+  
+  // Callback to receive scene from PaintableModel
+  const handleSceneReady = useCallback((scene) => {
+    sceneRef.current = scene;
+  }, []);
 
   // Reset error state when modelUrl changes
   useEffect(() => {
@@ -619,6 +698,7 @@ export default function ModelViewer({
                 wireframe={wireframe}
                 brightness={brightness}
                 playAnimation={playAnimation}
+                onSceneReady={handleSceneReady}
               />
             </Center>
           </group>
@@ -701,7 +781,9 @@ export default function ModelViewer({
       </div>
     </div>
   );
-}
+});
+
+export default ModelViewer;
 
 // Preload helper
 export function preloadModel(url) {

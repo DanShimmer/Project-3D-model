@@ -341,3 +341,30 @@ export async function downloadModelFile(filePath, filename) {
     return { ok: false, error: error.message };
   }
 }
+
+/**
+ * Upload a painted GLB (with baked vertex colors) to the server.
+ * This saves the model with COLOR_0 attributes so rig/animate pipelines preserve colors.
+ * @param {ArrayBuffer} glbBuffer - The GLB binary data from GLTFExporter
+ * @param {string} modelId - Unique model ID for filename
+ * @returns {{ ok, painted_model_path, painted_model_url }}
+ */
+export async function uploadPaintedModel(glbBuffer, modelId) {
+  try {
+    console.log(`🎨 Uploading painted model: ${modelId} (${glbBuffer.byteLength} bytes)`);
+    const res = await fetch(`${PHASE2_BASE}/save-painted?modelId=${encodeURIComponent(modelId)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        ...authHeaders()
+      },
+      body: glbBuffer
+    });
+    const result = await safeJsonResponse(res);
+    console.log("🎨 Painted model saved:", result);
+    return { ...result, ok: true };
+  } catch (error) {
+    console.error("Upload painted model error:", error);
+    return { ok: false, error: error.message };
+  }
+}
