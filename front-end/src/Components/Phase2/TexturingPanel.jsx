@@ -20,7 +20,9 @@ import {
   Wand2,
   Droplets,
   CircleDot,
-  Eye
+  Eye,
+  MessageSquare,
+  HelpCircle
 } from "lucide-react";
 
 // Texture styles with icons only
@@ -85,6 +87,8 @@ export default function TexturingPanel({
   theme = "dark",
   textureStyle = "realistic",
   setTextureStyle,
+  texturePrompt = "",
+  setTexturePrompt,
   gpuEnabled = false,
   onColorPaint,
   paintedColors = {},
@@ -94,7 +98,9 @@ export default function TexturingPanel({
   selectedPaintColor,
   setSelectedPaintColor,
   brushSize: propBrushSize,
-  setBrushSize: propSetBrushSize
+  setBrushSize: propSetBrushSize,
+  brushMode = "fill",
+  setBrushMode
 }) {
   const [localBrightness, setLocalBrightness] = useState(brightness);
   const [selectedColor, setSelectedColor] = useState(selectedPaintColor || "#4caf50");
@@ -274,6 +280,30 @@ export default function TexturingPanel({
                 </div>
               </div>
               
+              {/* Brush Mode Toggle */}
+              <div className="mb-3 flex items-center gap-2">
+                <button
+                  onClick={() => setBrushMode && setBrushMode("fill")}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    brushMode === "fill"
+                      ? theme === "dark" ? "bg-lime-600 text-white shadow-lg" : "bg-cyan-500 text-white shadow-lg"
+                      : `${currentTheme.hoverBg} ${currentTheme.textSecondary}`
+                  }`}
+                >
+                  🪣 Fill
+                </button>
+                <button
+                  onClick={() => setBrushMode && setBrushMode("brush")}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    brushMode === "brush"
+                      ? theme === "dark" ? "bg-lime-600 text-white shadow-lg" : "bg-cyan-500 text-white shadow-lg"
+                      : `${currentTheme.hoverBg} ${currentTheme.textSecondary}`
+                  }`}
+                >
+                  🖌️ Brush
+                </button>
+              </div>
+
               {/* Paint Mode Indicator */}
               {isPaintMode && (
                 <div className={`mb-3 flex items-center justify-between px-3 py-2 ${theme === "dark" ? "bg-lime-900/30 border-lime-500/30" : "bg-cyan-100 border-cyan-300"} border rounded-lg`}>
@@ -285,7 +315,9 @@ export default function TexturingPanel({
                         style={{ backgroundColor: selectedColor }}
                       />
                     </div>
-                    <span className={`text-xs ${currentTheme.accentColor}`}>Brush Active — Hold & Drag on model</span>
+                    <span className={`text-xs ${currentTheme.accentColor}`}>
+                      {brushMode === "fill" ? "Fill Active — Click on model to fill part" : "Brush Active — Hold & Drag on model"}
+                    </span>
                   </div>
                   <button
                     onClick={handleExitPaintMode}
@@ -318,11 +350,12 @@ export default function TexturingPanel({
               {/* Paint instruction */}
               <div className={`mt-3 flex items-center gap-2 text-xs ${currentTheme.textMuted}`}>
                 <Brush size={14} />
-                <span>{isPaintMode ? "Hold left mouse & drag on model to paint" : "Select a color to activate brush"}</span>
+                <span>{!isPaintMode ? "Select a color to start painting" : brushMode === "fill" ? "Click on a model part to fill with color" : "Hold left mouse & drag on model to paint"}</span>
               </div>
             </div>
 
-            {/* Brush Size */}
+            {/* Brush Size — only for brush mode */}
+            {brushMode === "brush" && (
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -355,6 +388,7 @@ export default function TexturingPanel({
                 />
               </div>
             </div>
+            )}
 
             {/* Visual Controls — always available */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4 space-y-3`}>
@@ -409,74 +443,58 @@ export default function TexturingPanel({
         {/* ======================== AI TEXTURE TAB ======================== */}
         {activeTab === "ai" && (
           <div className="space-y-4">
-            {/* Texture Style */}
+            {/* Texture Prompt Input */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <h3 className={`text-sm font-medium mb-3 ${currentTheme.text}`}>Style</h3>
-              <div className="flex gap-2">
-                {TEXTURE_STYLES.map((style) => {
-                  const Icon = style.icon;
-                  return (
-                    <button
-                      key={style.id}
-                      onClick={() => setTextureStyle?.(style.id)}
-                      title={style.tooltip}
-                      className={`flex-1 p-3 rounded-lg border transition-all flex flex-col items-center justify-center gap-1 ${
-                        textureStyle === style.id
-                          ? `${currentTheme.accentBorder} ${theme === "dark" ? "bg-lime-900/30" : "bg-cyan-100"}`
-                          : `${currentTheme.border} ${currentTheme.hoverBg}`
-                      }`}
-                    >
-                      <Icon 
-                        size={20} 
-                        className={textureStyle === style.id ? currentTheme.accentColor : currentTheme.textSecondary} 
-                      />
-                      <span className={`text-[10px] ${textureStyle === style.id ? currentTheme.accentColor : currentTheme.textMuted}`}>
-                        {style.tooltip}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="flex items-center justify-between mb-2">
+                <h3 className={`text-sm font-medium flex items-center gap-2 ${currentTheme.text}`}>
+                  <MessageSquare size={16} className={currentTheme.accentColor} />
+                  Color Description
+                </h3>
+                <div className="relative group">
+                  <HelpCircle size={14} className={`${currentTheme.textMuted} cursor-help`} />
+                  <div className={`absolute right-0 top-6 w-56 p-3 ${currentTheme.bg} border ${currentTheme.border} rounded-lg shadow-xl text-xs ${currentTheme.textSecondary} opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50`}>
+                    <p className="font-medium mb-1">Describe colors for each part:</p>
+                    <p className="italic">pink head, brown legs, white hands, blue body</p>
+                    <p className="mt-1 font-medium">Or simple overall color:</p>
+                    <p className="italic">metallic silver, dark red</p>
+                  </div>
+                </div>
               </div>
+              <textarea
+                value={texturePrompt}
+                onChange={(e) => setTexturePrompt?.(e.target.value)}
+                placeholder="e.g. pink head, brown legs, white hands, blue body..."
+                rows={3}
+                className={`w-full px-3 py-2.5 ${currentTheme.cardBg} border ${currentTheme.border} rounded-lg text-sm ${currentTheme.text} placeholder:${currentTheme.textMuted} focus:outline-none focus:ring-2 ${theme === "dark" ? "focus:ring-lime-500/50" : "focus:ring-cyan-500/50"} resize-none transition-all`}
+              />
+              <p className={`text-xs ${currentTheme.textMuted} mt-1.5`}>
+                Describe body part + color. Leave empty for auto coloring.
+              </p>
             </div>
 
-            {/* AI Options */}
+            {/* Quick Color Presets */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
-              <h3 className={`text-sm font-medium mb-3 ${currentTheme.text}`}>AI Options</h3>
-              <div className="space-y-2">
-                {AI_OPTIONS.map((option) => {
-                  const Icon = option.icon;
-                  const isSelected = selectedAIOptions.includes(option.id);
-                  return (
-                    <button
-                      key={option.id}
-                      onClick={() => toggleAIOption(option.id)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all ${
-                        isSelected
-                          ? `${currentTheme.accentBorder} ${theme === "dark" ? "bg-lime-900/20" : "bg-cyan-50"}`
-                          : `${currentTheme.border} ${currentTheme.hoverBg}`
-                      }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${isSelected ? (theme === "dark" ? "bg-lime-500/20" : "bg-cyan-100") : currentTheme.cardBg}`}>
-                        <Icon size={16} className={isSelected ? currentTheme.accentColor : currentTheme.textSecondary} />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className={`text-sm font-medium ${isSelected ? currentTheme.accentColor : currentTheme.text}`}>
-                          {option.label}
-                        </div>
-                        <div className={`text-xs ${currentTheme.textMuted}`}>
-                          {option.description}
-                        </div>
-                      </div>
-                      <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
-                        isSelected 
-                          ? `${currentTheme.accentBg} border-transparent` 
-                          : currentTheme.border
-                      }`}>
-                        {isSelected && <Check size={12} className="text-white" />}
-                      </div>
-                    </button>
-                  );
-                })}
+              <h3 className={`text-sm font-medium mb-3 ${currentTheme.text}`}>Quick Presets</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: "🤖 Robot", prompt: "silver metallic body, blue glowing eyes, dark grey joints" },
+                  { label: "🧙 Fantasy", prompt: "golden armor chest, brown leather legs, red cape back" },
+                  { label: "🎮 Stylized", prompt: "bright orange head, white body, blue legs, yellow hands" },
+                  { label: "🦖 Creature", prompt: "green scaly body, yellow belly, red eyes, dark claws" },
+                  { label: "🗡️ Weapon", prompt: "silver steel blade, brown leather grip, gold guard" },
+                  { label: "🚗 Vehicle", prompt: "red body, black wheels, silver chrome trim" },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => {
+                      console.log("🎨 Preset selected:", preset.label, "→", preset.prompt);
+                      setTexturePrompt?.(preset.prompt);
+                    }}
+                    className={`text-left px-3 py-2 rounded-lg border ${currentTheme.border} ${currentTheme.hoverBg} transition-all text-xs`}
+                  >
+                    <span className={`font-medium ${currentTheme.text}`}>{preset.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -551,8 +569,11 @@ export default function TexturingPanel({
             {/* Apply AI Texture Button */}
             <div className={`${currentTheme.cardBg} rounded-xl p-4`}>
               <button
-                onClick={() => onApplyTexture?.({ textureStyle, aiOptions: selectedAIOptions, mode: "ai" })}
-                disabled={isProcessing || selectedAIOptions.length === 0}
+                onClick={() => {
+                  console.log("🎨 Apply AI Texture clicked:", { textureStyle, texturePrompt, mode: "ai" });
+                  onApplyTexture?.({ textureStyle, texturePrompt, mode: "ai" });
+                }}
+                disabled={isProcessing}
                 className={`w-full py-3 ${currentTheme.accentBg} rounded-xl text-white font-medium ${
                   theme === "dark" ? "hover:bg-lime-400" : "hover:bg-cyan-400"
                 } transition-colors flex items-center justify-center gap-2 disabled:opacity-50`}
@@ -569,9 +590,15 @@ export default function TexturingPanel({
                   </>
                 )}
               </button>
-              <p className={`text-xs ${currentTheme.textMuted} mt-2 text-center`}>
-                {selectedAIOptions.length} option{selectedAIOptions.length !== 1 ? "s" : ""} selected
-              </p>
+              {texturePrompt ? (
+                <p className={`text-xs ${currentTheme.accentColor} mt-2 text-center`}>
+                  Custom colors from your description
+                </p>
+              ) : (
+                <p className={`text-xs ${currentTheme.textMuted} mt-2 text-center`}>
+                  Auto color based on model shape
+                </p>
+              )}
             </div>
           </div>
         )}

@@ -146,8 +146,82 @@ class Hunyuan3DConfig:
     DEFAULT_SEED = 12345
     
 
+class ComfyUIConfig:
+    """ComfyUI Integration for AI Texture Generation (StableGen-style pipeline)
+    
+    Pipeline: 3D model → render multi-view depth → SDXL + ControlNet generate 
+              textured views → project to UV → bake texture → export GLB
+    
+    SETUP:
+    1. Install ComfyUI: https://github.com/comfyanonymous/ComfyUI
+    2. Download SDXL checkpoint into ComfyUI/models/checkpoints/
+    3. Download ControlNet depth model into ComfyUI/models/controlnet/
+    4. Start ComfyUI: python main.py --listen 0.0.0.0 --port 8188
+    
+    Recommended models:
+    - SDXL: sd_xl_base_1.0.safetensors or juggernautXL_v9Rundiffusion.safetensors
+    - ControlNet: diffusers_xl_depth_full.safetensors (SDXL depth)
+      OR: control_v11f1p_sd15_depth.safetensors (SD1.5 depth)
+    """
+    
+    # ComfyUI server URL
+    URL = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
+    
+    # === Model Selection ===
+    # SDXL checkpoint filename (must be in ComfyUI/models/checkpoints/)
+    CHECKPOINT = os.getenv("COMFYUI_CHECKPOINT", "sd_xl_base_1.0.safetensors")
+    
+    # ControlNet model filename (must be in ComfyUI/models/controlnet/)
+    CONTROLNET_MODEL = os.getenv("COMFYUI_CONTROLNET", "diffusers_xl_depth_full.safetensors")
+    
+    # Set to True if using SD1.5 instead of SDXL
+    USE_SD15 = os.getenv("COMFYUI_USE_SD15", "false").lower() == "true"
+    
+    # === Generation Settings ===
+    TEXTURE_SIZE = 1024          # Output texture resolution
+    RENDER_RESOLUTION = 512      # Depth map render resolution
+    NUM_VIEWS = 4                # Number of camera views (4 or 6)
+    STEPS = 25                   # Diffusion sampling steps
+    CFG = 7.0                    # Classifier-free guidance scale
+    CONTROLNET_STRENGTH = 0.85   # ControlNet conditioning strength
+    SAMPLER = "euler_ancestral"  # Sampler name
+    SCHEDULER = "normal"         # Scheduler type
+    DENOISE = 1.0                # Denoise strength
+    SEED = 42                    # Default seed (same across views for consistency)
+    TIMEOUT = 180                # Max wait time per generation (seconds)
+    
+    # === Prompts ===
+    STYLE_PROMPTS = {
+        "realistic": (
+            "ultra detailed realistic texture, photorealistic surface material, "
+            "8k high resolution, natural color variation, studio quality lighting"
+        ),
+        "stylized": (
+            "beautiful stylized game texture, vibrant rich colors, "
+            "AAA game asset quality, clean crisp details, professional game art"
+        ),
+        "pbr": (
+            "professional PBR texture map, physically based rendering material, "
+            "game-ready texture, Substance Painter quality, Unreal Engine quality"
+        ),
+        "hand-painted": (
+            "masterful hand-painted texture, beautiful brush strokes, "
+            "World of Warcraft art style, vibrant saturated colors, Blizzard quality"
+        ),
+    }
+    
+    NEGATIVE_PROMPT = (
+        "blurry, low quality, pixelated, noisy, watermark, text, signature, "
+        "tiled, repeating pattern, seams, stretching, distorted, "
+        "flat color, solid color, no detail, boring, plain, "
+        "jpeg artifacts, compression artifacts, low resolution, "
+        "black background, white background"
+    )
+
+
 class ProcessingConfig:
     """Image/3D Processing Configuration"""
+
     # Image preprocessing
     TARGET_SIZE = 512
     BACKGROUND_COLOR = (127, 127, 127)  # Gray background (fallback only)

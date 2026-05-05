@@ -28,6 +28,7 @@ import { DemoModelPreview, DEMO_MODEL_TYPES } from "../Components/DemoModels";
 import ModelThumbnail from "../Components/ModelThumbnail";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
+import { shareModel } from "../api/models";
 
 const API_URL = "http://localhost:5000/api";
 
@@ -172,45 +173,57 @@ export default function MyStorage() {
     setShareDescription(model.prompt || "");
     setShareMode("link");
     setCopied(false);
-    
-    // Generate share link
-    const shareId = model.shareToken || `model-${model._id}`;
-    setShareLink(`${window.location.origin}/share/${shareId}`);
     setShowShareModal(true);
+
+    try {
+      // Call backend to get/create shareToken
+      const res = await shareModel(model._id);
+      const token = res.shareToken || res.model?.shareToken;
+      if (token) {
+        setShareLink(`${window.location.origin}/share/${token}`);
+        // Update model in list
+        setModels(prev => prev.map(m => m._id === model._id ? { ...m, shareToken: token, isPublic: true } : m));
+      } else {
+        setShareLink(`${window.location.origin}/share/${model._id}`);
+      }
+    } catch (err) {
+      console.error("Error generating share link:", err);
+      setShareLink(`${window.location.origin}/share/${model._id}`);
+    }
   };
 
   // Share to showcase
-  const handleShareToShowcase = () => {
+  const handleShareToShowcase = async () => {
     if (!selectedModel) return;
+    setActionLoading(true);
     
     try {
-      const existingShared = JSON.parse(localStorage.getItem("pv_showcase_models") || "[]");
-      
-      const sharedModel = {
-        id: Date.now(),
-        title: shareTitle,
-        description: shareDescription,
-        modelUrl: selectedModel.modelUrl,
-        imageUrl: selectedModel.thumbnailUrl,
-        author: user?.name || user?.email || "Anonymous",
-        authorId: user?._id,
-        likes: 0,
-        comments: [],
-        createdAt: new Date().toISOString(),
-        variant: selectedModel.variant || 1,
-        color: selectedModel.color || "#22c55e",
-        isDemo: true,
-        tags: ["ai-generated", selectedModel.type]
-      };
-      
-      existingShared.unshift(sharedModel);
-      localStorage.setItem("pv_showcase_models", JSON.stringify(existingShared));
+      // Update model name/description first if changed
+      if (shareTitle !== selectedModel.name || shareDescription !== selectedModel.prompt) {
+        await fetch(`${API_URL}/models/${selectedModel._id}`, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name: shareTitle, prompt: shareDescription }),
+        });
+      }
+
+      // Share via backend API (sets isPublic=true + generates shareToken)
+      const res = await shareModel(selectedModel._id);
+      const token = res.shareToken || res.model?.shareToken;
+
+      // Update model in list
+      setModels(prev => prev.map(m => m._id === selectedModel._id ? { ...m, isPublic: true, shareToken: token, name: shareTitle } : m));
       
       setShowShareModal(false);
       alert("Model has been shared to Showcase!");
     } catch (err) {
       console.error("Error sharing to showcase:", err);
       alert("An error occurred while sharing");
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -493,12 +506,31 @@ export default function MyStorage() {
                 {/* Thumbnail - render actual 3D model or fallback to image */}
                 <div className={`aspect-square bg-gray-800/50 relative overflow-hidden`}>
                   <ModelThumbnail
-                    modelUrl={model.modelUrl}
+                    modelUrl={model.animatedModelUrl || model.riggedModelUrl || model.texturedModelUrl || model.modelUrl}
                     thumbnailUrl={model.thumbnailUrl}
                     name={model.name}
                     className="w-full h-full"
                   />
                   
+                  {/* Phase2 State Badges */}
+                  <div className="absolute bottom-2 left-2 flex gap-1">
+                    {model.isTextured && (
+                      <div className="px-1.5 py-0.5 rounded-md backdrop-blur-sm bg-amber-500/30 text-amber-300 text-[10px] font-medium">
+                        🎨 Textured
+                      </div>
+                    )}
+                    {model.isRigged && (
+                      <div className="px-1.5 py-0.5 rounded-md backdrop-blur-sm bg-green-500/30 text-green-300 text-[10px] font-medium">
+                        🦴 Rigged
+                      </div>
+                    )}
+                    {model.animationId && (
+                      <div className="px-1.5 py-0.5 rounded-md backdrop-blur-sm bg-blue-500/30 text-blue-300 text-[10px] font-medium">
+                        🎬 {model.animationId}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Variant Badge */}
                   {model.variant && model.variant > 1 && (
                     <div className="absolute top-2 right-2">
@@ -592,7 +624,7 @@ export default function MyStorage() {
                       <div className="flex items-center gap-3">
                         <div className={`w-12 h-12 bg-gray-800/50 rounded-lg flex items-center justify-center overflow-hidden`}>
                           <ModelThumbnail
-                            modelUrl={model.modelUrl}
+                            modelUrl={model.animatedModelUrl || model.riggedModelUrl || model.texturedModelUrl || model.modelUrl}
                             thumbnailUrl={model.thumbnailUrl}
                             name={model.name}
                             className="w-full h-full"
@@ -608,6 +640,18 @@ export default function MyStorage() {
                           {model.prompt && (
                             <p className={`text-xs ${currentTheme.textSecondary} truncate max-w-xs`}>{model.prompt}</p>
                           )}
+                          {/* Phase2 state badges in list view */}
+                          <div className="flex gap-1 mt-1">
+                            {model.isTextured && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[10px]">🎨 Textured</span>
+                            )}
+                            {model.isRigged && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-green-500/20 text-green-400 text-[10px]">🦴 Rigged</span>
+                            )}
+                            {model.animationId && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-400 text-[10px]">🎬 {model.animationId}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>

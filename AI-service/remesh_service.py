@@ -216,12 +216,10 @@ class RemeshService:
     
     def _convert_to_triangle(self, mesh: 'trimesh.Trimesh', target_faces: int) -> 'trimesh.Trimesh':
         """
-        Ensure mesh is triangulated and optimized
+        Ensure mesh is triangulated and optimized.
+        Preserves smooth vertex normals to avoid blocky/faceted appearance.
         """
         print("   Converting to Triangle mesh...")
-        
-        # Triangulate (should already be triangles, but ensure)
-        # trimesh meshes are always triangles, so this is mainly for cleanup
         
         # Simplify if needed
         current_faces = len(mesh.faces)
@@ -238,6 +236,20 @@ class RemeshService:
         mesh.remove_duplicate_faces()
         mesh.remove_unreferenced_vertices()
         mesh.fill_holes()
+        
+        # CRITICAL: Fix vertex normals after all operations.
+        # trimesh operations (decimation, subdivision, cleanup) can leave the mesh
+        # without proper smooth vertex normals. Without vertex normals, the GLB
+        # exporter uses face normals → flat shading → blocky/faceted appearance
+        # that looks like LEGO blocks.
+        try:
+            # Recompute smooth vertex normals from face normals
+            mesh.fix_normals()
+            # Force vertex normal computation (weighted by face area for smooth shading)
+            _ = mesh.vertex_normals  # triggers computation if not cached
+            print(f"   ✓ Vertex normals recomputed ({len(mesh.vertices)} verts)")
+        except Exception as e:
+            print(f"   ⚠️ Could not fix normals: {e}")
         
         return mesh
     

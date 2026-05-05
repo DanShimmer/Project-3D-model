@@ -20,6 +20,7 @@ import {
   LucidePlus,
 } from "lucide-react";
 import { getAvatarById } from "../Components/AvatarModal";
+import ModelThumbnail from "../Components/ModelThumbnail";
 import { createUser } from "../api/admin";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -752,21 +753,30 @@ export default function AdminDashboard() {
                         key={model._id}
                         className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50"
                       >
-                        <div className="aspect-video bg-gray-700/50 rounded-lg mb-3 flex items-center justify-center">
-                          {model.thumbnailUrl ? (
-                            <img
-                              src={model.thumbnailUrl}
-                              alt={model.name}
-                              className="w-full h-full object-cover rounded-lg"
-                            />
-                          ) : (
-                            <LucideBox className="w-8 h-8 text-gray-500" />
-                          )}
+                        <div className="aspect-video bg-gray-700/50 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
+                          <ModelThumbnail
+                            modelUrl={model.animatedModelUrl || model.riggedModelUrl || model.texturedModelUrl || model.modelUrl}
+                            thumbnailUrl={model.thumbnailUrl}
+                            name={model.name}
+                            className="w-full h-full"
+                          />
                         </div>
                         <h4 className="font-medium text-white truncate">{model.name}</h4>
                         <p className="text-xs text-gray-400 mt-1">
                           {model.type} • {new Date(model.createdAt).toLocaleDateString()}
                         </p>
+                        {/* Phase2 state badges */}
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {model.isTextured && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[10px]">🎨 Textured</span>
+                          )}
+                          {model.isRigged && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-green-500/20 text-green-400 text-[10px]">🦴 Rigged</span>
+                          )}
+                          {model.animationId && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-400 text-[10px]">🎬 {model.animationId}</span>
+                          )}
+                        </div>
                         {model.prompt && (
                           <p className="text-xs text-gray-500 mt-2 line-clamp-2">{model.prompt}</p>
                         )}

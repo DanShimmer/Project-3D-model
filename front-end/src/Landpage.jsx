@@ -7,6 +7,9 @@ import { useAuth } from "./contexts/AuthContext";
 import { useTheme } from "./contexts/ThemeContext";
 import Logo, { LogoIcon } from "./Components/Logo";
 import { updateProfile } from "./api/auth";
+import { getShowcaseModels } from "./api/models";
+import { DemoModelPreview, DEMO_MODEL_TYPES } from "./Components/DemoModels";
+import ModelThumbnail from "./Components/ModelThumbnail";
 import { 
   Sparkles, 
   Box, 
@@ -68,10 +71,34 @@ export default function PolyvaApp() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [showcaseModels, setShowcaseModels] = useState([]);
   const navigate = useNavigate();
   const { user, login, logout: authLogout, updateUser, getToken } = useAuth();
   const { theme, toggleTheme, currentTheme } = useTheme();
   const canvasRef = useRef(null);
+
+  // Fetch showcase models for landing page
+  useEffect(() => {
+    const fetchShowcase = async () => {
+      try {
+        const res = await getShowcaseModels(1, 3, "newest");
+        if (res.ok && res.models && res.models.length > 0) {
+          setShowcaseModels(res.models.slice(0, 3).map(m => ({
+            id: m._id,
+            title: m.name || "3D Model",
+            author: m.userId?.username || m.userId?.email || "community",
+            modelUrl: m.animatedModelUrl || m.riggedModelUrl || m.texturedModelUrl || m.modelUrl || null,
+            prompt: m.prompt || "",
+            type: m.type || "ai-generated",
+            isTextured: m.isTextured || false,
+          })));
+        }
+      } catch (err) {
+        console.warn("Showcase fetch failed:", err.message);
+      }
+    };
+    fetchShowcase();
+  }, []);
 
   // Handle logout
   const handleLogout = () => {
@@ -447,7 +474,7 @@ export default function PolyvaApp() {
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => user ? navigate("/generate") : setShowLoginModal(true)}
+                  onClick={() => user ? navigate("/generate", { state: { freshStart: true } }) : setShowLoginModal(true)}
                   className={`inline-flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r ${theme === 'dark' ? 'from-lime-500 to-green-600 shadow-lime-500/20 hover:shadow-lime-500/40' : 'from-cyan-500 to-blue-600 shadow-cyan-500/20 hover:shadow-cyan-500/40'} text-white rounded-full font-semibold text-lg shadow-xl transition-all`}
                 >
                   <Sparkles className="w-5 h-5" />
@@ -593,7 +620,7 @@ export default function PolyvaApp() {
                 whileInView={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.6 }}
                 viewport={{ once: true }}
-                onClick={() => user ? navigate("/generate") : setShowLoginModal(true)}
+                onClick={() => user ? navigate("/generate", { state: { freshStart: true } }) : setShowLoginModal(true)}
                 className={`mt-4 md:mt-0 flex items-center gap-2 px-6 py-3 ${theme === 'dark' ? 'bg-lime-500/20 text-lime-400 hover:bg-lime-500/30' : 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30'} rounded-full font-medium transition-all`}
               >
                 <Sparkles className="w-4 h-4" />
@@ -703,25 +730,38 @@ export default function PolyvaApp() {
             </div>
 
             <div className="grid md:grid-cols-3 gap-6">
-              {[1, 2, 3].map((i) => (
+              {(showcaseModels.length > 0 ? showcaseModels : [
+                { id: 1, title: "3D Model 1", author: "community", modelUrl: null },
+                { id: 2, title: "3D Model 2", author: "community", modelUrl: null },
+                { id: 3, title: "3D Model 3", author: "community", modelUrl: null },
+              ]).map((model, i) => (
                 <motion.div
-                  key={i}
+                  key={model.id || i}
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.6, delay: i * 0.1 }}
                   viewport={{ once: true }}
                   whileHover={{ y: -5 }}
-                  className="group bg-gradient-to-br from-gray-900 to-black rounded-2xl border border-white/10 overflow-hidden"
+                  className="group bg-gradient-to-br from-gray-900 to-black rounded-2xl border border-white/10 overflow-hidden cursor-pointer"
+                  onClick={() => navigate("/showcase")}
                 >
                   <div className="aspect-square bg-gradient-to-br from-gray-800 to-gray-900 relative">
                     <div className={`absolute inset-0 bg-gradient-to-br ${theme === 'dark' ? 'from-lime-500/5' : 'from-cyan-500/5'} to-transparent`} />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Box className="w-16 h-16 text-gray-700" />
-                    </div>
+                    {model.modelUrl ? (
+                      <ModelThumbnail
+                        modelUrl={model.modelUrl}
+                        className="w-full h-full"
+                        autoRotate={true}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Box className="w-16 h-16 text-gray-700" />
+                      </div>
+                    )}
                   </div>
                   <div className="p-4">
-                    <h3 className="font-semibold text-white">3D Model {i}</h3>
-                    <p className="text-sm text-gray-500 mt-1">By @user{i}</p>
+                    <h3 className="font-semibold text-white">{model.title}</h3>
+                    <p className="text-sm text-gray-500 mt-1">By @{model.author}</p>
                   </div>
                 </motion.div>
               ))}

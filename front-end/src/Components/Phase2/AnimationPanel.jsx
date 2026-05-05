@@ -13,7 +13,10 @@ import {
   Zap,
   Hand,
   Skull,
-  Music
+  Music,
+  PartyPopper,
+  Eye,
+  ArrowUp
 } from "lucide-react";
 
 // Animation presets
@@ -35,28 +38,64 @@ const ANIMATIONS = [
     duration: "2.0s"
   },
   {
+    id: "wave",
+    label: "Wave",
+    description: "Friendly hand wave",
+    icon: Hand,
+    category: "gesture",
+    duration: "2.0s",
+    loop: true
+  },
+  {
+    id: "clap",
+    label: "Clap",
+    description: "Rhythmic clapping",
+    icon: Hand,
+    category: "gesture",
+    duration: "1.5s",
+    loop: true
+  },
+  {
+    id: "bow",
+    label: "Bow",
+    description: "Polite forward bow",
+    icon: User,
+    category: "gesture",
+    duration: "2.0s"
+  },
+  {
     id: "dance",
     label: "Dance",
     description: "Joyful dance moves",
     icon: Music,
     category: "action",
-    duration: "4.0s"
+    duration: "4.0s",
+    loop: true
+  },
+  {
+    id: "celebrate",
+    label: "Celebrate",
+    description: "Victory fist pumps",
+    icon: PartyPopper,
+    category: "action",
+    duration: "3.0s",
+    loop: true
   },
   {
     id: "arise",
     label: "Arise",
-    description: "Stand up from sitting/lying",
+    description: "Stand up from crouching",
     icon: User,
     category: "transition",
     duration: "2.5s"
   },
   {
-    id: "behit-flyup",
-    label: "Be Hit Fly Up",
-    description: "Knocked upward by impact",
-    icon: Zap,
-    category: "combat",
-    duration: "1.8s"
+    id: "sit_down",
+    label: "Sit Down",
+    description: "Transition to sitting",
+    icon: User,
+    category: "transition",
+    duration: "2.0s"
   },
   {
     id: "walk",
@@ -68,20 +107,38 @@ const ANIMATIONS = [
     loop: true
   },
   {
-    id: "dead",
-    label: "Dead",
-    description: "Fall down death animation",
-    icon: Skull,
-    category: "combat",
-    duration: "2.0s"
-  },
-  {
     id: "run",
     label: "Run",
-    description: "Fast running cycle",
+    description: "Running cycle",
     icon: Footprints,
     category: "locomotion",
     duration: "0.8s",
+    loop: true
+  },
+  {
+    id: "run_fast",
+    label: "Run Fast",
+    description: "Full sprint cycle",
+    icon: Zap,
+    category: "locomotion",
+    duration: "0.6s",
+    loop: true
+  },
+  {
+    id: "jump",
+    label: "Jump",
+    description: "Crouch and jump up",
+    icon: ArrowUp,
+    category: "locomotion",
+    duration: "1.0s"
+  },
+  {
+    id: "look_around",
+    label: "Look Around",
+    description: "Scanning surroundings",
+    icon: Eye,
+    category: "idle",
+    duration: "3.0s",
     loop: true
   },
   {
@@ -91,6 +148,30 @@ const ANIMATIONS = [
     icon: Sword,
     category: "combat",
     duration: "1.2s"
+  },
+  {
+    id: "punch",
+    label: "Punch",
+    description: "Quick right-hand punch",
+    icon: Sword,
+    category: "combat",
+    duration: "0.8s"
+  },
+  {
+    id: "kick",
+    label: "Kick",
+    description: "Right leg kick",
+    icon: Sword,
+    category: "combat",
+    duration: "1.0s"
+  },
+  {
+    id: "dead",
+    label: "Dead",
+    description: "Fall down death animation",
+    icon: Skull,
+    category: "combat",
+    duration: "2.0s"
   }
 ];
 

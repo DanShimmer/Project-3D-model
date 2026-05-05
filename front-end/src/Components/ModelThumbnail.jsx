@@ -23,16 +23,32 @@ function TinyModel({ url }) {
   
   const clonedScene = useMemo(() => {
     const clone = scene.clone(true);
-    // Ensure untextured models are visible (bright material on dark bg)
     clone.traverse((child) => {
       if (child.isMesh) {
         const mat = child.material.clone();
-        // If material has no map (untextured), make it a visible light gray
-        if (!mat.map) {
+        const geo = child.geometry;
+        const hasVertexColors = !!(geo && geo.attributes && geo.attributes.color);
+        
+        if (hasVertexColors) {
+          // Model has vertex colors (e.g. procedural texture) — use them
+          mat.vertexColors = true;
+          mat.color = new THREE.Color(1, 1, 1); // white base — no darkening
+          mat.roughness = 0.6;
+          mat.metalness = 0.1;
+        } else if (mat.map) {
+          // Has texture map — ensure white base color so texture shows at full brightness
+          // (prevents gray baseColorFactor from darkening the texture)
+          mat.color = new THREE.Color(1, 1, 1);
+          mat.roughness = 0.6;
+          mat.metalness = 0.1;
+        } else {
+          // No texture, no vertex colors — untextured, make it visible light gray
           mat.color = new THREE.Color(0.75, 0.75, 0.78);
           mat.roughness = 0.6;
           mat.metalness = 0.1;
         }
+        // If mat.map exists (textured), leave material as-is
+        mat.needsUpdate = true;
         child.material = mat;
       }
     });

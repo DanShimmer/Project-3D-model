@@ -149,6 +149,7 @@ export default function GeneratePage() {
   
   // State
   const [activeMode, setActiveMode] = useState("text-to-3d");
+  const [lockedMode, setLockedMode] = useState(null); // Lock to current mode after first successful generation
   const [selectedModel, setSelectedModel] = useState("polyva-1.5");
   const [prompt, setPrompt] = useState("");
   const [uploadedImage, setUploadedImage] = useState(null);
@@ -194,6 +195,7 @@ export default function GeneratePage() {
   const [isPaintMode, setIsPaintMode] = useState(false);
   const [selectedPaintColor, setSelectedPaintColor] = useState("#4caf50");
   const [brushSize, setBrushSize] = useState(50);
+  const [brushMode, setBrushMode] = useState("fill"); // 'brush' or 'fill'
   const [paintedColors, setPaintedColors] = useState({});
   // Rig states
   const [showRigPanel, setShowRigPanel] = useState(false);
@@ -201,6 +203,8 @@ export default function GeneratePage() {
   const [rigConfig, setRigConfig] = useState(null);
   const [isRigging, setIsRigging] = useState(false);
   const [riggedModelPath, setRiggedModelPath] = useState(null); // Path to rigged GLB for animation
+  const [preRigModelUrl, setPreRigModelUrl] = useState(null); // URL of model BEFORE rigging (original or textured)
+  const [preTextureModelUrl, setPreTextureModelUrl] = useState(null); // URL of model BEFORE texturing (original generated model)
   const [paintedModelPath, setPaintedModelPath] = useState(null); // Path to painted GLB (with vertex colors)
   const modelViewerRef = useRef(null); // Ref to ModelViewer for GLB export
   // Animation states
@@ -303,12 +307,11 @@ export default function GeneratePage() {
       const model = state.editModel;
       setEditingModel(model);
       
-      
-      if (state.mode) {
-        setActiveMode(state.mode);
-      } else if (model.type) {
-        
-        setActiveMode(model.type);
+      // Set and LOCK the active mode based on the saved model's type
+      const modelMode = state.mode || model.type;
+      if (modelMode) {
+        setActiveMode(modelMode);
+        setLockedMode(modelMode); // Lock mode — disable switching to the other mode
       }
       
       
@@ -322,12 +325,15 @@ export default function GeneratePage() {
       
       const savedVariant = model.variant || 1;
       
+      // Determine the best model URL to show
+      // Priority: animated > rigged > textured > original modelUrl
+      const bestUrl = model.animatedModelUrl || model.riggedModelUrl || model.texturedModelUrl || model.modelUrl;
       
-      if (model.modelUrl || model.prompt) {
-        const hasRealModel = model.modelUrl && model.modelUrl.startsWith('http');
+      if (bestUrl || model.prompt) {
+        const hasRealModel = bestUrl && bestUrl.startsWith('http');
         const loadedModel = {
           id: model._id,
-          modelUrl: model.modelUrl,
+          modelUrl: bestUrl,
           thumbnailUrl: model.thumbnailUrl,
           name: model.name,
           prompt: model.prompt,
@@ -338,6 +344,26 @@ export default function GeneratePage() {
         };
         setGeneratedModels([loadedModel]);
         setSelectedGeneratedModel(loadedModel);
+      }
+      
+      // ── Restore Phase 2 state from DB ──
+      if (model.isTextured) {
+        setIsTextured(true);
+        if (model.texturePrompt) setTexturePrompt(model.texturePrompt);
+        if (model.textureStyle) setTextureStyle(model.textureStyle);
+        // preTextureModelUrl = the original (before texture) URL
+        setPreTextureModelUrl(model.modelUrl);
+      }
+      if (model.isRigged) {
+        setIsRigConfigured(true);
+        if (model.rigConfig) setRigConfig(model.rigConfig);
+        // riggedModelPath = server-side path for animation API calls
+        if (model.riggedModelUrl) setRiggedModelPath(model.riggedModelUrl);
+        // preRigModelUrl = URL before rigging (textured or original)
+        setPreRigModelUrl(model.texturedModelUrl || model.modelUrl);
+      }
+      if (model.animationId) {
+        setCurrentAnimation(model.animationId);
       }
       
       // Clear the state so it doesn't reload on navigation
@@ -358,6 +384,96 @@ export default function GeneratePage() {
       navigate("/login", { state: { from: "/generate" } });
     }
   }, [isAuthenticated, loading, navigate]);
+
+  // ── Session persistence: Restore state on mount ──
+  useEffect(() => {
+    // Don't restore if navigated with editModel (handled above)
+    if (location.state?.editModel) return;
+    
+    // Fresh start — clear any leftover session from previous edit/generate
+    if (location.state?.freshStart) {
+      sessionStorage.removeItem("pv_generate_session");
+      window.history.replaceState({}, document.title);
+      return;
+    }
+    
+    // Only restore session on page RELOAD (F5), not on fresh navigation
+    // This prevents stale models from appearing when clicking "Generate" links
+    const navEntries = performance.getEntriesByType?.("navigation");
+    const isReload = navEntries?.length > 0 && navEntries[0].type === "reload";
+    if (!isReload) {
+      // Fresh navigation (clicked a link/button) → clear stale session
+      sessionStorage.removeItem("pv_generate_session");
+      return;
+    }
+    
+    try {
+      const saved = sessionStorage.getItem("pv_generate_session");
+      if (saved) {
+        const s = JSON.parse(saved);
+        if (s.generatedModels?.length) {
+          setGeneratedModels(s.generatedModels);
+          if (s.selectedModelId) {
+            const sel = s.generatedModels.find(m => m.id === s.selectedModelId);
+            if (sel) {
+              setSelectedGeneratedModel(sel);
+              if (s.focusedModelId) {
+                const foc = s.generatedModels.find(m => m.id === s.focusedModelId);
+                if (foc) setFocusedVariant(foc);
+              }
+            }
+          }
+          if (s.prompt) setPrompt(s.prompt);
+          if (s.activeMode) setActiveMode(s.activeMode);
+          if (s.lockedMode) setLockedMode(s.lockedMode);
+          if (s.isRigConfigured) setIsRigConfigured(true);
+          if (s.rigConfig) setRigConfig(s.rigConfig);
+          if (s.riggedModelPath) setRiggedModelPath(s.riggedModelPath);
+          if (s.preRigModelUrl) setPreRigModelUrl(s.preRigModelUrl);
+          if (s.preTextureModelUrl) setPreTextureModelUrl(s.preTextureModelUrl);
+          if (s.currentAnimation) setCurrentAnimation(s.currentAnimation);
+          if (s.isTextured) setIsTextured(true);
+          if (s.texturePrompt) setTexturePrompt(s.texturePrompt);
+          if (s.textureStyle) setTextureStyle(s.textureStyle);
+          if (s.currentTopology) setCurrentTopology(s.currentTopology);
+        }
+        console.log("📦 Session restored from sessionStorage");
+      }
+    } catch (err) {
+      console.warn("Session restore failed:", err);
+    }
+  }, []);
+
+  // ── Session persistence: Save state on change ──
+  useEffect(() => {
+    if (!generatedModels.length) return;
+    
+    try {
+      const session = {
+        generatedModels,
+        selectedModelId: selectedGeneratedModel?.id || null,
+        focusedModelId: focusedVariant?.id || null,
+        prompt,
+        activeMode,
+        lockedMode,
+        isRigConfigured,
+        rigConfig,
+        riggedModelPath,
+        preRigModelUrl,
+        preTextureModelUrl,
+        currentAnimation,
+        isTextured,
+        texturePrompt,
+        textureStyle,
+        currentTopology,
+      };
+      sessionStorage.setItem("pv_generate_session", JSON.stringify(session));
+    } catch (err) {
+      console.warn("Session save failed:", err);
+    }
+  }, [generatedModels, selectedGeneratedModel, focusedVariant, prompt, activeMode,
+      lockedMode, isRigConfigured, rigConfig, riggedModelPath, preRigModelUrl, preTextureModelUrl,
+      currentAnimation, isTextured, texturePrompt, textureStyle, currentTopology]);
   
   // Check AI Service health
   useEffect(() => {
@@ -550,21 +666,48 @@ export default function GeneratePage() {
     if (!selectedGeneratedModel) return;
     
     try {
-      // Use backend API to save model to MongoDB (persistent storage)
-      const { createModel } = await import('./api/models.js');
+      // Determine the "best" model URL — the most advanced version available
+      // Priority: animated > rigged > textured > original
+      const bestModelUrl = selectedGeneratedModel.modelUrl;
       
-      const result = await createModel({
+      const modelData = {
         name: selectedGeneratedModel.name || prompt || "Untitled Model",
-        type: selectedGeneratedModel.isUploaded ? "uploaded" : (activeTab === "image" ? "image-to-3d" : "text-to-3d"),
+        type: selectedGeneratedModel.isUploaded ? "uploaded" : activeMode,
         prompt: prompt || "",
-        modelUrl: selectedGeneratedModel.modelUrl,
+        modelUrl: bestModelUrl,
         thumbnailUrl: selectedGeneratedModel.imageUrl || selectedGeneratedModel.thumbnailUrl || null,
-      });
+        // Phase 2 state — persist ALL modifications
+        texturedModelUrl: isTextured ? (preRigModelUrl || bestModelUrl) : undefined,
+        riggedModelUrl: riggedModelPath ? (isRigConfigured ? (preRigModelUrl ? bestModelUrl : riggedModelPath) : undefined) : undefined,
+        animatedModelUrl: currentAnimation ? bestModelUrl : undefined,
+        animationId: currentAnimation || undefined,
+        isTextured: isTextured || false,
+        isRigged: isRigConfigured || false,
+        texturePrompt: texturePrompt || undefined,
+        textureStyle: textureStyle || undefined,
+        rigConfig: rigConfig || undefined,
+      };
       
-      if (result.model || result.msg === "Model saved successfully") {
-        alert("✅ Model saved to My Storage!");
+      // If editing an existing model from My Storage, UPDATE it instead of creating a duplicate
+      if (editingModel && editingModel._id) {
+        const { updateModel } = await import('./api/models.js');
+        const result = await updateModel(editingModel._id, modelData);
+        
+        if (result.model || result.msg) {
+          alert("✅ Model updated in My Storage!");
+        } else {
+          throw new Error(result.msg || "Update failed");
+        }
       } else {
-        throw new Error(result.msg || "Save failed");
+        // New model — create
+        const { createModel } = await import('./api/models.js');
+        const result = await createModel(modelData);
+        
+        if (result.model || result.msg === "Model saved successfully") {
+          alert("✅ Model saved to My Storage!");
+        } else {
+          throw new Error(result.msg || "Save failed");
+        }
       }
     } catch (err) {
       console.error("Save to storage error:", err);
@@ -770,6 +913,7 @@ export default function GeneratePage() {
         
         setGeneratedModels([generatedModel]);
         setSelectedGeneratedModel(generatedModel);
+        setLockedMode("text-to-3d"); // Lock to text-to-3d after successful generation
         
       } else {
         if (!uploadedFile) {
@@ -816,6 +960,7 @@ export default function GeneratePage() {
         
         setGeneratedModels(variants);
         setSelectedGeneratedModel(variants[0]);
+        setLockedMode("image-to-3d"); // Lock to image-to-3d after successful generation
         
         // Update modelType and variant in database
         if (baseModel?._id) {
@@ -907,9 +1052,6 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
     if (!selectedGeneratedModel) return;
     setShareTitle(selectedGeneratedModel.name || prompt || "Untitled Model");
     setShareDescription(selectedGeneratedModel.prompt || prompt || "");
-    // Generate share link
-    const shareId = `model-${Date.now()}`;
-    setShareLink(`${window.location.origin}/share/${shareId}`);
     setShareMode("showcase");
     setCopied(false);
     setShowShareModal(true);
@@ -922,38 +1064,50 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
     setTimeout(() => setCopied(false), 2000);
   };
   
-  // Submit share to showcase
+  // Submit share to showcase — calls backend API to set isPublic=true
   const submitShare = async () => {
     if (!selectedGeneratedModel) return;
     
     try {
-      // Get existing shared models from localStorage (simulating a database)
-      const existingShared = JSON.parse(localStorage.getItem("pv_showcase_models") || "[]");
+      // First, ensure model is saved to backend (needs a real _id)
+      let modelId = selectedGeneratedModel._id || selectedGeneratedModel.backendId;
       
-      const sharedModel = {
-        id: Date.now(),
-        title: shareTitle,
-        description: shareDescription,
-        modelUrl: selectedGeneratedModel.modelUrl,
-        imageUrl: selectedGeneratedModel.imageUrl || uploadedImage,
-        author: user?.name || user?.email || "Anonymous",
-        authorId: user?._id,
-        likes: 0,
-        comments: [],
-        createdAt: new Date().toISOString(),
-        variant: selectedGeneratedModel.variant,
-        color: selectedGeneratedModel.color,
-        isDemo: selectedGeneratedModel.isDemo,
-        tags: ["ai-generated"]
-      };
+      if (!modelId) {
+        // Save to backend first, then share
+        const { createModel } = await import('./api/models.js');
+        const saveResult = await createModel({
+          name: shareTitle || selectedGeneratedModel.name || "Shared Model",
+          type: selectedGeneratedModel.type || (uploadedImage ? "image-to-3d" : "text-to-3d"),
+          prompt: shareDescription || selectedGeneratedModel.prompt || prompt || "",
+          modelUrl: selectedGeneratedModel.modelUrl,
+          imageUrl: selectedGeneratedModel.imageUrl || uploadedImage || "",
+          thumbnailUrl: selectedGeneratedModel.thumbnailUrl || "",
+          texturedModelUrl: selectedGeneratedModel.texturedModelUrl || undefined,
+          isTextured: isTextured || false,
+        });
+        if (saveResult.model && saveResult.model._id) {
+          modelId = saveResult.model._id;
+          // Store backend ID on the model so future shares don't re-create
+          setSelectedGeneratedModel(prev => ({ ...prev, _id: modelId, backendId: modelId }));
+        } else {
+          throw new Error(saveResult.msg || "Failed to save model");
+        }
+      }
       
-      existingShared.unshift(sharedModel);
-      localStorage.setItem("pv_showcase_models", JSON.stringify(existingShared));
+      // Call share API to set isPublic=true and generate shareToken
+      const { shareModel } = await import('./api/models.js');
+      const shareResult = await shareModel(modelId);
       
-      setShowShareModal(false);
-      alert("Model has been shared to Showcase!");
+      if (shareResult.shareToken) {
+        setShareLink(`${window.location.origin}/share/${shareResult.shareToken}`);
+        setShowShareModal(false);
+        alert("✅ Model shared to Showcase successfully!");
+      } else {
+        throw new Error(shareResult.msg || "Share failed");
+      }
     } catch (err) {
-      alert("An error occurred while sharing");
+      console.error("Share error:", err);
+      alert("Error sharing model: " + err.message);
     }
   };
   
@@ -967,6 +1121,7 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
     setError(null);
     setProgress(0);
     setGenerationStep("");
+    setLockedMode(null); // Unlock mode switching
     // Reset Phase 2 states
     setFocusedVariant(null);
     setCurrentTopology("triangle");
@@ -976,11 +1131,16 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
     setBrightness(100);
     setIsRigConfigured(false);
     setRigConfig(null);
+    setRiggedModelPath(null);
+    setPreRigModelUrl(null);
+    setPreTextureModelUrl(null);
     setCurrentAnimation(null);
     setIsAnimationPlaying(false);
     setShowTexturingPanel(false);
     setShowRigPanel(false);
     setShowAnimationPanel(false);
+    // Clear session storage
+    sessionStorage.removeItem("pv_generate_session");
   };
   
   // Handle selecting a variant - update database with selected variant
@@ -1044,6 +1204,16 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
         ));
         setSelectedGeneratedModel(updatedModel);
         
+        // Update preRigModelUrl to textured version so rig preserves texture
+        setPreRigModelUrl(updatedModel.modelUrl);
+        // Reset preTextureModelUrl so AI texture uses the Hunyuan-textured version as base
+        setPreTextureModelUrl(updatedModel.modelUrl);
+        // Reset rig state since the base model changed (new GLB without skeleton)
+        setIsRigConfigured(false);
+        setRiggedModelPath(null);
+        setCurrentAnimation(null);
+        setIsAnimationPlaying(false);
+        
         console.log(`✅ Hunyuan3D texture applied in ${result.elapsed?.toFixed(1)}s`);
       } else {
         throw new Error(result.msg || "Texture application failed");
@@ -1071,6 +1241,11 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
   // Handle exit focus mode
   const handleExitFocusMode = () => {
     setFocusedVariant(null);
+    // Clean up animation state when leaving focus
+    setShowAnimationPanel(false);
+    setIsAnimationPlaying(false);
+    setShowRigPanel(false);
+    setShowTexturingPanel(false);
   };
 
   // Handle Remesh
@@ -1159,7 +1334,7 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
   const handleApplyTexture = async (options = {}) => {
     if (!selectedGeneratedModel) return;
     
-    const { mode, textureStyle: optStyle, aiOptions } = options;
+    const { mode, textureStyle: optStyle, texturePrompt: optPrompt } = options;
     
     // If AI texture mode, call the AI service
     if (mode === "ai") {
@@ -1168,11 +1343,23 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
         // Focus on selected variant
         setFocusedVariant(selectedGeneratedModel);
         
-        // Get model path
-        const modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+        // ALWAYS use the original (pre-texture) model for texturing
+        // so re-texturing with a different prompt doesn't re-texture an already-textured model
+        const currentUrl = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+        const modelPath = preTextureModelUrl || currentUrl;
+        
+        // Save original model URL before first texture so we can re-texture later
+        if (!preTextureModelUrl) {
+          setPreTextureModelUrl(currentUrl);
+        }
+        
+        // Use prompt from options (TexturingPanel) or fallback to state
+        const promptToSend = optPrompt || texturePrompt || "";
+        
+        console.log("🎨 Texture request:", { modelPath, promptToSend, style: optStyle || textureStyle });
         
         // Call Phase 2 API for AI texturing
-        const result = await applyTexture(modelPath, texturePrompt, optStyle || textureStyle, aiOptions);
+        const result = await applyTexture(modelPath, promptToSend, optStyle || textureStyle);
         
         if (result.success || result.ok) {
           setIsTextured(true);
@@ -1180,18 +1367,93 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
           // Update model URL if new textured model is returned
           if (result.texturedModelPath) {
             const aiBaseUrl = import.meta.env.VITE_AI_URL || "http://localhost:8000";
-            const texturedUrl = `${aiBaseUrl}${result.texturedModelPath}`;
-            console.log("Textured model URL:", texturedUrl);
+            // Clean URL for API calls (rig, animate, etc.) — no query params
+            const texturedUrlClean = `${aiBaseUrl}${result.texturedModelPath}`;
+            // Display URL with cache-busting so Three.js/browser never serves stale model
+            const texturedUrlDisplay = `${texturedUrlClean}?t=${Date.now()}`;
+            console.log("✅ Textured model URL:", texturedUrlDisplay);
             
-            // Update the model with the new textured URL
-            setSelectedGeneratedModel(prev => ({
-              ...prev,
-              modelUrl: texturedUrl
-            }));
+            // Update the model with the DISPLAY URL (cache-busted) for Three.js
+            setSelectedGeneratedModel(prev => {
+              const updated = { ...prev, modelUrl: texturedUrlDisplay };
+              // Also update in generatedModels array so save/re-select uses textured URL
+              setGeneratedModels(gm => gm.map(m =>
+                m.id === prev.id ? updated : m
+              ));
+              return updated;
+            });
             setFocusedVariant(prev => ({
               ...prev,
-              modelUrl: texturedUrl
+              modelUrl: texturedUrlDisplay
             }));
+            
+            // Update preRigModelUrl to the CLEAN textured URL (no ?t=)
+            // so rig/animate API calls get a valid server-side path
+            setPreRigModelUrl(texturedUrlClean);
+            
+            // If model was previously rigged + animated, auto re-apply after texture
+            // Save current rig/animation config before resetting
+            const hadRig = isRigConfigured;
+            const savedRigConfig = rigConfig;
+            const hadAnimation = currentAnimation;
+            
+            // Reset rig state since the base model changed
+            setIsRigConfigured(false);
+            setRiggedModelPath(null);
+            setCurrentAnimation(null);
+            setIsAnimationPlaying(false);
+            
+            // Auto re-rig if was previously rigged
+            if (hadRig && savedRigConfig) {
+              console.log("🔄 Auto re-rigging textured model with saved config...");
+              try {
+                const rigResult = await applyRig(texturedUrlClean, savedRigConfig.type, savedRigConfig.markers || []);
+                if (rigResult.success || rigResult.ok) {
+                  const newRiggedPath = rigResult.rigged_model_url || rigResult.rigged_model_path || rigResult.riggedModelPath;
+                  if (newRiggedPath) {
+                    setRigConfig(savedRigConfig);
+                    setIsRigConfigured(true);
+                    setRiggedModelPath(newRiggedPath);
+                    
+                    const AI_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8000";
+                    const newRiggedUrl = newRiggedPath.startsWith('http')
+                      ? newRiggedPath
+                      : `${AI_URL}${newRiggedPath.startsWith('/') ? '' : '/'}${newRiggedPath}`;
+                    
+                    const riggedModel = { ...selectedGeneratedModel, modelUrl: newRiggedUrl };
+                    setSelectedGeneratedModel(riggedModel);
+                    setFocusedVariant(riggedModel);
+                    setGeneratedModels(gm => gm.map(m => m.id === riggedModel.id ? riggedModel : m));
+                    
+                    console.log("✅ Auto re-rig successful:", newRiggedUrl);
+                    
+                    // Auto re-animate if had animation
+                    if (hadAnimation) {
+                      console.log("🔄 Auto re-applying animation:", hadAnimation);
+                      const animResult = await applyAnimation(newRiggedPath, hadAnimation);
+                      if (animResult.success || animResult.ok) {
+                        const animPath = animResult.animated_model_url || animResult.animated_model_path || animResult.animatedModelPath;
+                        if (animPath) {
+                          const animUrl = animPath.startsWith('http')
+                            ? animPath
+                            : `${AI_URL}${animPath.startsWith('/') ? '' : '/'}${animPath}`;
+                          
+                          const animModel = { ...selectedGeneratedModel, modelUrl: animUrl };
+                          setSelectedGeneratedModel(animModel);
+                          setFocusedVariant(animModel);
+                          setGeneratedModels(gm => gm.map(m => m.id === animModel.id ? animModel : m));
+                          setCurrentAnimation(hadAnimation);
+                          setIsAnimationPlaying(true);
+                          console.log("✅ Auto re-animate successful:", animUrl);
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (reRigErr) {
+                console.warn("Auto re-rig failed, manual re-rig needed:", reRigErr.message);
+              }
+            }
           }
         } else {
           throw new Error(result.error || "AI Texturing failed");
@@ -1249,8 +1511,19 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
       // Focus on selected variant
       setFocusedVariant(selectedGeneratedModel);
       
-      // Get model path — if model has been painted, export and upload first
-      let modelPath = selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+      // Always rig from the ORIGINAL or TEXTURED model, never from an already-rigged model.
+      // This prevents double-skeleton corruption when the user rigs a second time.
+      let modelPath = preRigModelUrl || selectedGeneratedModel.modelUrl || `/outputs/${selectedGeneratedModel.id}.glb`;
+      
+      // Save the pre-rig model URL so re-rigging always uses the clean base
+      if (!preRigModelUrl) {
+        setPreRigModelUrl(modelPath);
+      }
+      
+      // Reset previous rig/animation state for a clean re-rig
+      setRiggedModelPath(null);
+      setCurrentAnimation(null);
+      setIsAnimationPlaying(false);
       
       // If the model has vertex colors (painted), export the scene with COLOR_0 baked in
       const hasPaint = isTextured && Object.keys(paintedColors).length > 0;
@@ -1282,9 +1555,9 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
           
           // Build full URL for the rigged model
           const AI_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8000";
-          const riggedUrl = result.rigged_model_url 
-            ? `${AI_URL}${result.rigged_model_url}`
-            : result.rigged_model_path;
+          const riggedUrl = riggedPath.startsWith('http')
+            ? riggedPath
+            : `${AI_URL}${riggedPath.startsWith('/') ? '' : '/'}${riggedPath}`;
           
           // Update the focused variant with the rigged model URL
           if (riggedUrl) {
@@ -1427,25 +1700,33 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
 
               {/* Mode tabs - Desktop */}
               <div className={`hidden md:flex items-center gap-1 ${currentTheme.cardBg} rounded-full p-1`}>
-                {MODES.map(mode => (
-                  <button
-                    key={mode.id}
-                    onClick={() => {
-                      setActiveMode(mode.id);
-                      setGeneratedModels([]);
-                      setSelectedGeneratedModel(null);
-                      setError(null);
-                    }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                      activeMode === mode.id
-                        ? `${currentTheme.accentBg} text-white`
-                        : `${currentTheme.textSecondary} hover:${currentTheme.text}`
-                    }`}
-                  >
-                    <mode.icon size={16} />
-                    {mode.label}
-                  </button>
-                ))}
+                {MODES.map(mode => {
+                  const isLocked = lockedMode && lockedMode !== mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      onClick={() => {
+                        if (isLocked) return;
+                        setActiveMode(mode.id);
+                        setGeneratedModels([]);
+                        setSelectedGeneratedModel(null);
+                        setError(null);
+                      }}
+                      disabled={isLocked}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                        activeMode === mode.id
+                          ? `${currentTheme.accentBg} text-white`
+                          : isLocked
+                            ? 'opacity-40 cursor-not-allowed text-gray-500'
+                            : `${currentTheme.textSecondary} hover:${currentTheme.text}`
+                      }`}
+                      title={isLocked ? `Clear current model to switch to ${mode.label}` : mode.description}
+                    >
+                      <mode.icon size={16} />
+                      {mode.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -1609,24 +1890,31 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
             {/* Mobile Mode Tabs */}
             <div className={`md:hidden p-4 border-b ${currentTheme.border}`}>
               <div className={`flex gap-2 ${currentTheme.cardBg} rounded-xl p-1`}>
-                {MODES.map(mode => (
-                  <button
-                    key={mode.id}
-                    onClick={() => {
-                      setActiveMode(mode.id);
-                      setGeneratedModels([]);
-                      setSelectedGeneratedModel(null);
-                    }}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${
-                      activeMode === mode.id
-                        ? `${currentTheme.accentBg} text-white`
-                        : currentTheme.textSecondary
-                    }`}
-                  >
-                    <mode.icon size={16} />
-                    {mode.label}
-                  </button>
-                ))}
+                {MODES.map(mode => {
+                  const isLocked = lockedMode && lockedMode !== mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      onClick={() => {
+                        if (isLocked) return;
+                        setActiveMode(mode.id);
+                        setGeneratedModels([]);
+                        setSelectedGeneratedModel(null);
+                      }}
+                      disabled={isLocked}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${
+                        activeMode === mode.id
+                          ? `${currentTheme.accentBg} text-white`
+                          : isLocked
+                            ? 'opacity-40 cursor-not-allowed text-gray-500'
+                            : currentTheme.textSecondary
+                      }`}
+                    >
+                      <mode.icon size={16} />
+                      {mode.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -1984,6 +2272,7 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
                           isPaintMode={isPaintMode}
                           paintColor={selectedPaintColor}
                           brushSize={brushSize}
+                          brushMode={brushMode}
                           onPaint={handlePaintModel}
                           wireframe={isWireframeEnabled}
                           brightness={brightness}
@@ -2672,6 +2961,8 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
             setSelectedPaintColor={setSelectedPaintColor}
             brushSize={brushSize}
             setBrushSize={setBrushSize}
+            brushMode={brushMode}
+            setBrushMode={setBrushMode}
             paintedColors={paintedColors}
             onClearPaint={handleClearPaint}
           />
@@ -2681,7 +2972,11 @@ f 7/1/6 1/2/6 3/4/6 5/3/6
       {/* Rig Panel */}
       <RigPanel
         isOpen={showRigPanel}
-        onClose={() => setShowRigPanel(false)}
+        onClose={() => {
+          setShowRigPanel(false);
+          // If rig was NOT configured, keep model visible but exit rig mode
+          // If rig WAS configured, model stays in focused state with rig
+        }}
         onConfirmRig={handleConfirmRig}
         isProcessing={isRigging}
         theme={theme}

@@ -161,7 +161,7 @@ export default function ShowcasePage() {
             title: m.name || "Untitled Model",
             description: m.prompt || `${m.type} model`,
             image: m.thumbnailUrl || null,
-            modelUrl: m.modelUrl || null,
+            modelUrl: m.animatedModelUrl || m.riggedModelUrl || m.texturedModelUrl || m.modelUrl || null,
             author: m.userId?.username || m.userId?.email || "community",
             authorAvatar: null,
             likes: 0,
@@ -170,6 +170,9 @@ export default function ShowcasePage() {
             createdAt: new Date(m.createdAt).toLocaleDateString(),
             tags: [m.type || "ai-generated", "community"],
             isDemo: false,
+            isTextured: m.isTextured || false,
+            isRigged: m.isRigged || false,
+            animationId: m.animationId || null,
           }));
           
           // On first page, append sample models as filler; on later pages, just backend
@@ -575,6 +578,21 @@ export default function ShowcasePage() {
                           #{tag}
                         </span>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Phase2 State Badges */}
+                  {(model.isTextured || model.isRigged || model.animationId) && (
+                    <div className="absolute bottom-2 left-2 flex gap-1">
+                      {model.isTextured && (
+                        <span className="px-1.5 py-0.5 rounded-md backdrop-blur-sm bg-amber-500/30 text-amber-300 text-[10px] font-medium">🎨</span>
+                      )}
+                      {model.isRigged && (
+                        <span className="px-1.5 py-0.5 rounded-md backdrop-blur-sm bg-green-500/30 text-green-300 text-[10px] font-medium">🦴</span>
+                      )}
+                      {model.animationId && (
+                        <span className="px-1.5 py-0.5 rounded-md backdrop-blur-sm bg-blue-500/30 text-blue-300 text-[10px] font-medium">🎬</span>
+                      )}
                     </div>
                   )}
                 </div>

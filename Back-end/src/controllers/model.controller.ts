@@ -54,7 +54,13 @@ export const getModelById = async (req: Request, res: Response) => {
 export const createModel = async (req: Request, res: Response) => {
   try {
     const userId = req.user._id;
-    const { name, type, prompt, imageUrl, modelUrl, thumbnailUrl } = req.body;
+    const {
+      name, type, prompt, imageUrl, modelUrl, thumbnailUrl,
+      // Phase 2 state
+      texturedModelUrl, riggedModelUrl, animatedModelUrl,
+      animationId, isTextured, isRigged,
+      texturePrompt, textureStyle, rigConfig
+    } = req.body;
     
     if (!name || !type || !modelUrl) {
       return res.status(400).json({ msg: "Missing required fields" });
@@ -69,6 +75,16 @@ export const createModel = async (req: Request, res: Response) => {
       modelUrl,
       thumbnailUrl,
       isPublic: false,
+      // Phase 2 state
+      texturedModelUrl: texturedModelUrl || undefined,
+      riggedModelUrl: riggedModelUrl || undefined,
+      animatedModelUrl: animatedModelUrl || undefined,
+      animationId: animationId || undefined,
+      isTextured: isTextured || false,
+      isRigged: isRigged || false,
+      texturePrompt: texturePrompt || undefined,
+      textureStyle: textureStyle || undefined,
+      rigConfig: rigConfig || undefined,
     });
     
     res.status(201).json({
@@ -86,7 +102,13 @@ export const updateModel = async (req: Request, res: Response) => {
   try {
     const { modelId } = req.params;
     const userId = req.user._id;
-    const { name, prompt, imageUrl, modelUrl, thumbnailUrl, isPublic, modelType, variant } = req.body;
+    const {
+      name, prompt, imageUrl, modelUrl, thumbnailUrl, isPublic, modelType, variant,
+      // Phase 2 state
+      texturedModelUrl, riggedModelUrl, animatedModelUrl,
+      animationId, isTextured, isRigged,
+      texturePrompt, textureStyle, rigConfig
+    } = req.body;
     
     const model = await Model.findOne({ _id: modelId, userId });
     if (!model) {
@@ -103,6 +125,17 @@ export const updateModel = async (req: Request, res: Response) => {
     // Handle modelType and variant for demo models
     if (modelType !== undefined) (model as any).modelType = modelType;
     if (variant !== undefined) (model as any).variant = variant;
+    
+    // Phase 2 state
+    if (texturedModelUrl !== undefined) (model as any).texturedModelUrl = texturedModelUrl;
+    if (riggedModelUrl !== undefined) (model as any).riggedModelUrl = riggedModelUrl;
+    if (animatedModelUrl !== undefined) (model as any).animatedModelUrl = animatedModelUrl;
+    if (animationId !== undefined) (model as any).animationId = animationId;
+    if (isTextured !== undefined) (model as any).isTextured = isTextured;
+    if (isRigged !== undefined) (model as any).isRigged = isRigged;
+    if (texturePrompt !== undefined) (model as any).texturePrompt = texturePrompt;
+    if (textureStyle !== undefined) (model as any).textureStyle = textureStyle;
+    if (rigConfig !== undefined) (model as any).rigConfig = rigConfig;
     
     await model.save();
     
@@ -228,7 +261,7 @@ export const getShowcaseModels = async (req: Request, res: Response) => {
       .sort(sortOption)
       .skip((Number(page) - 1) * Number(limit))
       .limit(Number(limit))
-      .select("name type prompt modelUrl thumbnailUrl createdAt userId shareToken");
+      .select("name type prompt modelUrl thumbnailUrl createdAt userId shareToken texturedModelUrl riggedModelUrl animatedModelUrl animationId isTextured isRigged");
     
     res.json({
       ok: true,
@@ -263,6 +296,16 @@ export const duplicateModel = async (req: Request, res: Response) => {
       modelUrl: originalModel.modelUrl,
       thumbnailUrl: originalModel.thumbnailUrl,
       isPublic: false,
+      // Preserve phase2 state
+      texturedModelUrl: (originalModel as any).texturedModelUrl,
+      riggedModelUrl: (originalModel as any).riggedModelUrl,
+      animatedModelUrl: (originalModel as any).animatedModelUrl,
+      animationId: (originalModel as any).animationId,
+      isTextured: (originalModel as any).isTextured,
+      isRigged: (originalModel as any).isRigged,
+      texturePrompt: (originalModel as any).texturePrompt,
+      textureStyle: (originalModel as any).textureStyle,
+      rigConfig: (originalModel as any).rigConfig,
     });
     
     res.status(201).json({

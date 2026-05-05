@@ -46,7 +46,7 @@ function Loader() {
 }
 
 // Paintable 3D Model component with vertex-level brush painting and animation support
-function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onPaint, wireframe, brightness, playAnimation, onSceneReady }) {
+function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, brushMode, onPaint, wireframe, brightness, playAnimation, onSceneReady }) {
   const { scene, animations } = useGLTF(url);
   const ref = useRef();
   const { raycaster, camera, gl } = useThree();
@@ -54,6 +54,7 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
   const lastPaintPosRef = useRef(null);
   const mixerRef = useRef(null);
   const actionsRef = useRef([]);
+  const skeletonFixedRef = useRef(false);
   
   // Expose scene to parent for GLB export
   useEffect(() => {
@@ -61,6 +62,17 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
       onSceneReady(scene);
     }
   }, [scene, onSceneReady]);
+  
+  // Fix SkinnedMesh skeleton binding after <Center> repositions the model.
+  // <Center> wraps the scene in a translated group, which shifts bone matrixWorld
+  // values but does NOT update inverseBindMatrices. This mismatch causes:
+  // - Skinned vertices to be offset from where they should be
+  // - Animation to appear broken (some verts move, others stuck)
+  // Fix: After the first render frame (when matrixWorld is up-to-date),
+  // recalculate the skeleton's inverse bind matrices.
+  useEffect(() => {
+    skeletonFixedRef.current = false;
+  }, [scene]);
   
   // Animation playback using THREE.AnimationMixer
   useEffect(() => {
@@ -101,6 +113,30 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
   
   // Update animation mixer each frame
   useFrame((state, delta) => {
+    // Fix skeleton binding on the first frame after scene loads.
+    // Must happen in useFrame (not useEffect) because <Center>'s useLayoutEffect
+    // sets the group position, but matrixWorld isn't updated until Three.js renders.
+    // On the first frame, all matrixWorld values are current → safe to recalculate.
+    if (!skeletonFixedRef.current && scene) {
+      // Force update world matrices through the entire hierarchy
+      let root = scene;
+      while (root.parent) root = root.parent;
+      root.updateMatrixWorld(true);
+      
+      scene.traverse((child) => {
+        if (child.isSkinnedMesh && child.skeleton) {
+          // Recalculate inverse bind matrices from current bone world positions
+          // This accounts for any parent transforms (like <Center>'s offset)
+          child.skeleton.calculateInverses();
+          // Update bind matrix to match current mesh world position
+          child.bindMatrix.copy(child.matrixWorld);
+          child.bindMatrixInverse.copy(child.bindMatrix).invert();
+          console.log("🦴 Fixed SkinnedMesh skeleton binding (inverses recalculated)");
+        }
+      });
+      skeletonFixedRef.current = true;
+    }
+    
     if (mixerRef.current && playAnimation) {
       mixerRef.current.update(delta);
     }
@@ -110,35 +146,82 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
     }
   });
   
-  // ONE-TIME initialization: setup vertex colors and materials for painting
+  // ONE-TIME initialization: setup paint surfaces (texture-based or vertex fallback)
   // NOTE: We do NOT manually scale/center here — <Center> handles that
+  const PAINT_TEX_SIZE = 2048; // High-res canvas for crisp painting
+  
   useEffect(() => {
     if (scene) {
       scene.traverse((child) => {
+        // Disable frustum culling for SkinnedMesh — during animation, bone
+        // deformations can move vertices outside the rest-pose bounding box,
+        // causing Three.js to incorrectly cull (hide) the mesh
+        if (child.isSkinnedMesh) {
+          child.frustumCulled = false;
+        }
         if (child.isMesh && child.geometry) {
-          const geo = child.geometry;
+          if (child.material._isPaintSetup) return;
           
-          // Add vertex colors attribute if not present
-          if (!geo.attributes.color) {
+          const geo = child.geometry;
+          const mat = child.material;
+          const hasUV = !!geo.attributes.uv;
+          const hasTextureMap = !!(mat.map || mat.emissiveMap);
+          
+          child.material = child.material.clone();
+          
+          if (hasUV) {
+            // ═══ TEXTURE-BASED PAINTING (high quality, pixel-perfect) ═══
+            // Paint on a 2048×2048 canvas mapped via UV — resolution-independent,
+            // crisp colors regardless of mesh vertex count.
+            const canvas = document.createElement('canvas');
+            canvas.width = PAINT_TEX_SIZE;
+            canvas.height = PAINT_TEX_SIZE;
+            const ctx = canvas.getContext('2d');
+            
+            // Initialize canvas: preserve existing texture or use base color
+            let initialized = false;
+            if (hasTextureMap && mat.map && mat.map.image) {
+              try {
+                ctx.drawImage(mat.map.image, 0, 0, PAINT_TEX_SIZE, PAINT_TEX_SIZE);
+                initialized = true;
+              } catch(e) { /* CORS or incomplete image — fall through */ }
+            }
+            if (!initialized) {
+              const baseHex = mat.color ? `#${mat.color.getHexString()}` : '#b0b0b0';
+              ctx.fillStyle = baseHex;
+              ctx.fillRect(0, 0, PAINT_TEX_SIZE, PAINT_TEX_SIZE);
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.flipY = false; // Match glTF convention
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.needsUpdate = true;
+            
+            child.material.map = texture;
+            child.material.color.set(0xffffff);
+            child.material.vertexColors = false;
+            child.material._paintCanvas = canvas;
+            child.material._paintCtx = ctx;
+            child.material._paintTexture = texture;
+            child.material._paintMode = 'texture';
+          } else {
+            // ═══ VERTEX-COLOR FALLBACK (no UVs available) ═══
             const count = geo.attributes.position.count;
             const colors = new Float32Array(count * 3);
-            const mat = child.material;
-            const baseColor = mat.color ? mat.color : new THREE.Color(1, 1, 1);
+            const baseColor = mat.color || new THREE.Color(1, 1, 1);
             for (let i = 0; i < count; i++) {
               colors[i * 3] = baseColor.r;
               colors[i * 3 + 1] = baseColor.g;
               colors[i * 3 + 2] = baseColor.b;
             }
             geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            child.material.vertexColors = true;
+            child.material.color.set(0xffffff);
+            child.material._paintMode = 'vertex';
           }
           
-          // Clone material and enable vertex colors (only once)
-          if (!child.material._isPaintSetup) {
-            child.material = child.material.clone();
-            child.material.vertexColors = true;
-            child.material._isPaintSetup = true;
-            child.material.needsUpdate = true;
-          }
+          child.material._isPaintSetup = true;
+          child.material.needsUpdate = true;
         }
       });
       
@@ -165,71 +248,106 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
     });
   }, [scene, wireframe, brightness]);
 
-  // Paint vertices near the intersection point with brush radius and smooth Gaussian falloff
+  // Paint — texture-based (high quality) with vertex-color fallback
   const paintAtPoint = useCallback((intersect) => {
-    if (!intersect || !intersect.object || !intersect.object.geometry) return;
+    if (!intersect || !intersect.object) return;
     
     const mesh = intersect.object;
-    const geo = mesh.geometry;
-    const colorAttr = geo.attributes.color;
-    const posAttr = geo.attributes.position;
+    const mat = mesh.material;
+    const paintMode = mat._paintMode;
+    if (!paintMode) return;
     
-    if (!colorAttr || !posAttr) return;
-    
-    // Get intersection point in local space
-    const localPoint = mesh.worldToLocal(intersect.point.clone());
-    
-    // Calculate brush radius based on brushSize (10-100) mapped to world units
-    const box = new THREE.Box3().setFromBufferAttribute(posAttr);
-    const meshSize = box.getSize(new THREE.Vector3()).length();
-    const radius = (brushSize / 100) * meshSize * 0.15; // Brush radius relative to mesh size
-    
-    const newColor = new THREE.Color(paintColor);
-    let painted = false;
-    
-    // Gaussian sigma = radius / 2.5 for smooth falloff (95% strength at center, ~5% at edge)
-    const sigma = radius / 2.5;
-    const sigma2 = sigma * sigma * 2;
-    
-    // Paint all vertices within brush radius with Gaussian falloff
-    for (let i = 0; i < posAttr.count; i++) {
-      const vx = posAttr.getX(i);
-      const vy = posAttr.getY(i);
-      const vz = posAttr.getZ(i);
+    if (paintMode === 'texture') {
+      // ═══ TEXTURE PAINTING — pixel-perfect, crisp, beautiful colors ═══
+      const ctx = mat._paintCtx;
+      const canvas = mat._paintCanvas;
+      const texture = mat._paintTexture;
+      if (!ctx || !canvas || !texture) return;
       
-      const dx = vx - localPoint.x;
-      const dy = vy - localPoint.y;
-      const dz = vz - localPoint.z;
-      const distSq = dx * dx + dy * dy + dz * dz;
+      const w = canvas.width;
+      const h = canvas.height;
       
-      if (distSq <= radius * radius) {
-        // Gaussian falloff: smooth bell curve, much better than quadratic
-        const strength = Math.exp(-distSq / sigma2);
+      if (brushMode === 'fill') {
+        // Fill entire texture with solid color — instant, clean
+        ctx.fillStyle = paintColor;
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        // Brush mode — paint soft circle at UV position
+        const uv = intersect.uv;
+        if (!uv) return;
         
-        // Blend existing color with paint color (at least 5% opacity for visible painting)
-        const alpha = Math.max(strength * 0.85, 0.05);
+        const x = uv.x * w;
+        const y = (1 - uv.y) * h; // UV v=0 is bottom, canvas y=0 is top
+        const radius = Math.max(4, (brushSize / 100) * 80);
         
-        const existingR = colorAttr.getX(i);
-        const existingG = colorAttr.getY(i);
-        const existingB = colorAttr.getZ(i);
+        // Parse hex color for gradient
+        const hexStr = paintColor.replace('#', '');
+        const cr = parseInt(hexStr.substring(0, 2), 16);
+        const cg = parseInt(hexStr.substring(2, 4), 16);
+        const cb = parseInt(hexStr.substring(4, 6), 16);
         
-        colorAttr.setXYZ(
-          i,
-          existingR + (newColor.r - existingR) * alpha,
-          existingG + (newColor.g - existingG) * alpha,
-          existingB + (newColor.b - existingB) * alpha
-        );
-        painted = true;
+        // Soft-edged brush: solid center 65%, smooth fade to edge
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+        gradient.addColorStop(0, `rgba(${cr},${cg},${cb},1)`);
+        gradient.addColorStop(0.65, `rgba(${cr},${cg},${cb},1)`);
+        gradient.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = gradient;
+        ctx.fill();
+        ctx.restore();
       }
-    }
-    
-    if (painted) {
-      colorAttr.needsUpdate = true;
+      
+      texture.needsUpdate = true;
       if (onPaint) {
         onPaint({ meshId: mesh.uuid, color: paintColor, point: intersect.point });
       }
+      
+    } else {
+      // ═══ VERTEX-COLOR FALLBACK (for meshes without UVs) ═══
+      const geo = mesh.geometry;
+      const colorAttr = geo.attributes.color;
+      const posAttr = geo.attributes.position;
+      if (!colorAttr || !posAttr) return;
+      
+      const newColor = new THREE.Color(paintColor);
+      let painted = false;
+      
+      if (brushMode === 'fill') {
+        for (let i = 0; i < posAttr.count; i++) {
+          colorAttr.setXYZ(i, newColor.r, newColor.g, newColor.b);
+        }
+        painted = true;
+      } else {
+        const localPoint = mesh.worldToLocal(intersect.point.clone());
+        const box = new THREE.Box3().setFromBufferAttribute(posAttr);
+        const meshSize = box.getSize(new THREE.Vector3()).length();
+        const radius = (brushSize / 100) * meshSize * 0.15;
+        const radiusSq = radius * radius;
+        
+        for (let i = 0; i < posAttr.count; i++) {
+          const dx = posAttr.getX(i) - localPoint.x;
+          const dy = posAttr.getY(i) - localPoint.y;
+          const dz = posAttr.getZ(i) - localPoint.z;
+          const distSq = dx * dx + dy * dy + dz * dz;
+          if (distSq <= radiusSq) {
+            colorAttr.setXYZ(i, newColor.r, newColor.g, newColor.b);
+            painted = true;
+          }
+        }
+      }
+      
+      if (painted) {
+        colorAttr.needsUpdate = true;
+        if (onPaint) {
+          onPaint({ meshId: mesh.uuid, color: paintColor, point: intersect.point });
+        }
+      }
     }
-  }, [paintColor, brushSize, onPaint]);
+  }, [paintColor, brushSize, brushMode, onPaint]);
 
   // Raycast and paint — with stroke interpolation for smooth continuous strokes
   const doPaint = useCallback((event) => {
@@ -276,43 +394,52 @@ function PaintableModel({ url, onLoaded, isPaintMode, paintColor, brushSize, onP
     }
   }, [isPaintMode, paintColor, scene, raycaster, camera, gl, paintAtPoint]);
 
-  // Setup mouse event listeners for click-and-drag painting
+  // Setup pointer event listeners for click-and-drag painting
+  // Use pointer events (not mouse events) because OrbitControls uses pointerdown/
+  // pointermove internally and can suppress mousedown via preventDefault.
   useEffect(() => {
     if (!isPaintMode) return;
     
     const canvas = gl.domElement;
     
-    const onMouseDown = (e) => {
+    const onPointerDown = (e) => {
       if (e.button !== 0) return; // Left button only
+      e.stopPropagation(); // Prevent OrbitControls from consuming this
       isPaintingRef.current = true;
+      canvas.setPointerCapture(e.pointerId); // Capture so we get moves even outside canvas
       doPaint(e);
     };
     
-    const onMouseMove = (e) => {
+    const onPointerMove = (e) => {
       if (!isPaintingRef.current) return;
+      e.stopPropagation();
       doPaint(e);
     };
     
-    const onMouseUp = () => {
+    const onPointerUp = (e) => {
+      if (isPaintingRef.current) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
       isPaintingRef.current = false;
       lastPaintPosRef.current = null;
     };
     
-    const onMouseLeave = () => {
+    const onPointerLeave = () => {
       isPaintingRef.current = false;
       lastPaintPosRef.current = null;
     };
     
-    canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseup', onMouseUp);
-    canvas.addEventListener('mouseleave', onMouseLeave);
+    // Use capture phase to intercept before OrbitControls
+    canvas.addEventListener('pointerdown', onPointerDown, { capture: true });
+    canvas.addEventListener('pointermove', onPointerMove, { capture: true });
+    canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointerleave', onPointerLeave);
     
     return () => {
-      canvas.removeEventListener('mousedown', onMouseDown);
-      canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('mouseup', onMouseUp);
-      canvas.removeEventListener('mouseleave', onMouseLeave);
+      canvas.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      canvas.removeEventListener('pointermove', onPointerMove, { capture: true });
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
     };
   }, [isPaintMode, doPaint, gl]);
   
@@ -413,14 +540,15 @@ function BrushCursor({ color, size }) {
 }
 
 // Controls component
-function CameraControls({ controlsRef, enableRotate = true }) {
+function CameraControls({ controlsRef, enableRotate = true, enabled = true }) {
   const { camera, gl } = useThree();
   
   return (
     <OrbitControls
       ref={controlsRef}
       args={[camera, gl.domElement]}
-      enablePan={true}
+      enabled={enabled}
+      enablePan={enabled}
       enableZoom={true}
       enableRotate={enableRotate}
       minDistance={0.5}
@@ -431,16 +559,25 @@ function CameraControls({ controlsRef, enableRotate = true }) {
 }
 
 // Auto-fit camera to model bounding box
-function AutoFitCamera() {
+function AutoFitCamera({ modelUrl, controlsRef }) {
   const { camera, scene } = useThree();
   const fitted = useRef(false);
+  const prevUrl = useRef(null);
+  
+  // Reset when model URL changes so camera re-fits to new model bounds
+  useEffect(() => {
+    if (modelUrl !== prevUrl.current) {
+      fitted.current = false;
+      prevUrl.current = modelUrl;
+      // Clear GLTF cache for old URL to prevent stale model
+      // (new URL will be loaded fresh by useGLTF)
+    }
+  }, [modelUrl]);
   
   useFrame(() => {
     if (fitted.current) return;
     
     // IMPORTANT: Only measure the model container, NOT the Grid (10x10) or lights.
-    // Previously used scene bounding box which included the Grid,
-    // making the model appear as a tiny dot.
     const modelContainer = scene.getObjectByName('model-container');
     if (!modelContainer) return;
     
@@ -461,6 +598,14 @@ function AutoFitCamera() {
       camera.lookAt(center);
       camera.updateProjectionMatrix();
       
+      // CRITICAL: Update OrbitControls target to match model center.
+      // Without this, zoom/pan/rotate orbit around (0,0,0) while the model
+      // is at a different position → user can't control the view properly.
+      if (controlsRef?.current) {
+        controlsRef.current.target.copy(center);
+        controlsRef.current.update();
+      }
+      
       fitted.current = true;
     }
   });
@@ -479,6 +624,7 @@ const ModelViewer = forwardRef(function ModelViewer({
   isPaintMode = false,
   paintColor = "#4caf50",
   brushSize = 50,
+  brushMode = "brush",
   onPaint,
   // Visual props
   wireframe = false,
@@ -533,8 +679,14 @@ const ModelViewer = forwardRef(function ModelViewer({
     sceneRef.current = scene;
   }, []);
 
-  // Reset error state when modelUrl changes
+  // Reset error state and clear old model cache when modelUrl changes
+  const prevModelUrlRef = useRef(null);
   useEffect(() => {
+    // Clear useGLTF cache for the PREVIOUS URL to prevent stale model display
+    if (prevModelUrlRef.current && prevModelUrlRef.current !== modelUrl) {
+      try { useGLTF.clear(prevModelUrlRef.current); } catch(e) {}
+    }
+    prevModelUrlRef.current = modelUrl;
     setLoadError(null);
     setRetryKey(k => k + 1);
   }, [modelUrl]);
@@ -657,14 +809,14 @@ const ModelViewer = forwardRef(function ModelViewer({
         className={isPaintMode ? 'paint-cursor' : ''}
       >
         <Suspense fallback={<Loader />}>
-          {/* Auto-fit camera to model bounds */}
-          <AutoFitCamera />
+          {/* Auto-fit camera to model bounds (resets when modelUrl changes) */}
+          <AutoFitCamera modelUrl={modelUrl} controlsRef={controlsRef} />
           
-          {/* Lighting */}
-          <ambientLight intensity={0.5 * (brightness / 100)} />
-          <directionalLight position={[10, 10, 5]} intensity={1 * (brightness / 100)} />
-          <directionalLight position={[-10, -10, -5]} intensity={0.5 * (brightness / 100)} />
-          <pointLight position={[0, 5, 0]} intensity={0.5 * (brightness / 100)} />
+          {/* Lighting — bright enough to show textures clearly */}
+          <ambientLight intensity={0.8 * (brightness / 100)} />
+          <directionalLight position={[10, 10, 5]} intensity={1.2 * (brightness / 100)} />
+          <directionalLight position={[-10, -10, -5]} intensity={0.6 * (brightness / 100)} />
+          <pointLight position={[0, 5, 0]} intensity={0.4 * (brightness / 100)} />
           
           {/* Environment for reflections */}
           <Environment preset="city" />
@@ -685,8 +837,10 @@ const ModelViewer = forwardRef(function ModelViewer({
             position={[0, -1, 0]}
           />
           
-          {/* Model - wrapped in named group for AutoFitCamera bbox (excludes Grid) */}
-          <group name="model-container">
+          {/* Model - wrapped in named group for AutoFitCamera bbox (excludes Grid) 
+              key={modelUrl} forces full remount when URL changes — prevents stale 
+              scene/skeleton state from previous model bleeding into new one */}
+          <group name="model-container" key={modelUrl}>
             <Center>
               <PaintableModel 
                 url={modelUrl} 
@@ -694,6 +848,7 @@ const ModelViewer = forwardRef(function ModelViewer({
                 isPaintMode={isPaintMode}
                 paintColor={paintColor}
                 brushSize={brushSize}
+                brushMode={brushMode}
                 onPaint={onPaint}
                 wireframe={wireframe}
                 brightness={brightness}
@@ -704,7 +859,7 @@ const ModelViewer = forwardRef(function ModelViewer({
           </group>
           
           {/* Controls - disable rotate when painting */}
-          <CameraControls controlsRef={controlsRef} enableRotate={!isPaintMode} />
+          <CameraControls controlsRef={controlsRef} enableRotate={!isPaintMode} enabled={!isPaintMode} />
         </Suspense>
       </Canvas>
       </ModelErrorBoundary>

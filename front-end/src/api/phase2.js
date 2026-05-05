@@ -67,16 +67,20 @@ export async function checkPhase2Health() {
  * @param {string} style - Texture style (realistic, cartoon, stylized)
  * @param {string[]} aiOptions - AI options (auto-color, shadows, depth, detail)
  */
-export async function applyTexture(modelPath, prompt = null, style = "realistic", aiOptions = ["auto-color"]) {
+export async function applyTexture(modelPath, prompt = null, style = "realistic", aiOptions = null) {
   try {
-    console.log("Applying AI texture:", { modelPath, style, prompt, aiOptions });
+    console.log("🎨 Applying AI texture:", { modelPath, style, prompt: prompt?.substring(0, 80), aiOptions });
+    const body = { modelPath, prompt, style };
+    if (aiOptions && aiOptions.length > 0) {
+      body.aiOptions = aiOptions;
+    }
     const res = await fetch(`${PHASE2_BASE}/texture`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders()
       },
-      body: JSON.stringify({ modelPath, prompt, style, aiOptions })
+      body: JSON.stringify(body)
     });
     const result = await safeJsonResponse(res);
     console.log("Texture result:", result);

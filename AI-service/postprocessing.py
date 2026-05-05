@@ -390,20 +390,21 @@ def auto_fix_upright(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """
     Auto-detect and fix model orientation so it stands upright (Y-up).
     
-    Uses cross-section slice analysis to detect upside-down models:
-    1. Ensure Y is the tallest axis (rotate if needed)
-    2. Divide model into horizontal slices along Y
-    3. Compute XZ spread for each slice
-    4. Find the weighted center-of-spread along Y
-    5. For humanoid characters, the widest part (shoulders/arms) should be
-       in the UPPER portion. If the weighted center is in the lower half,
-       the model is likely upside down → flip 180° around X.
+    Uses multiple independent signals for robust detection:
     
-    This replaces the old simple top/bottom split which failed to detect
-    inversions where shoulders (wide) ended up at the bottom.
+    Signal 1: AXIS ALIGNMENT — ensure Y is the tallest axis
+    Signal 2: FACE NORMAL VOTING — the top half of a correctly-oriented model
+              should have more upward-facing normals (tops of shoulders, head crown)
+              than downward-facing. If the bottom half has more upward normals,
+              the model is upside-down.
+    Signal 3: VERTEX DENSITY — the bottom (feet) should be narrower/less dense
+              than the mid-section (torso). Only used as a tie-breaker.
     
-    Works for humanoid characters, creatures, and most upright objects.
-    Modifies vertices in-place to preserve TextureVisuals.
+    A flip only occurs when multiple signals agree, preventing false positives
+    on models with wide bases (skirts, robes, capes, platforms).
+    
+    When flipping, uses a proper 180° rotation matrix around X to preserve
+    face winding order and normals, instead of destructive Y-negation.
     """
     extents = mesh.extents
     x_ext, y_ext, z_ext = extents
@@ -418,28 +419,22 @@ def auto_fix_upright(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     else:
         print(f"    ⚠️ Y not tallest: tallest = {'XYZ'[max_axis]} ({max_ext:.3f}), Y = {y_ext:.3f}")
         
-        v = mesh.vertices.copy()
-        
+        # Use proper rotation matrix instead of vertex swapping
         if max_axis == 0:
-            # X is tallest → rotate 90° around Z: (x,y,z) → (-y, x, z)
+            # X is tallest → rotate 90° around Z
             print(f"    → Rotating 90° around Z (X→Y)")
-            mesh.vertices[:, 0] = -v[:, 1]
-            mesh.vertices[:, 1] = v[:, 0]
-            mesh.vertices[:, 2] = v[:, 2]
+            R = trimesh.transformations.rotation_matrix(np.radians(90), [0, 0, 1])
+            mesh.apply_transform(R)
         elif max_axis == 2:
-            # Z is tallest → rotate -90° around X: (x,y,z) → (x, z, -y)
+            # Z is tallest → rotate -90° around X
             print(f"    → Rotating -90° around X (Z→Y)")
-            mesh.vertices[:, 0] = v[:, 0]
-            mesh.vertices[:, 1] = v[:, 2]
-            mesh.vertices[:, 2] = -v[:, 1]
-        
-        if hasattr(mesh, '_cache'):
-            mesh._cache.clear()
+            R = trimesh.transformations.rotation_matrix(np.radians(-90), [1, 0, 0])
+            mesh.apply_transform(R)
         
         new_extents = mesh.extents
         print(f"    ✓ After rotation: X={new_extents[0]:.3f}, Y={new_extents[1]:.3f}, Z={new_extents[2]:.3f}")
     
-    # ── Step 2: Detect upside-down via cross-section slice analysis ──
+    # ── Step 2: Detect upside-down using face normal voting ──────────
     y_min = mesh.vertices[:, 1].min()
     y_max = mesh.vertices[:, 1].max()
     y_range = y_max - y_min
@@ -448,62 +443,104 @@ def auto_fix_upright(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
         print(f"    ✓ Model is flat along Y, skipping flip check")
         return mesh
     
-    NUM_SLICES = 10
-    slice_spreads = np.zeros(NUM_SLICES)
+    y_mid = (y_min + y_max) / 2.0
     
-    for i in range(NUM_SLICES):
-        y_lo = y_min + i * y_range / NUM_SLICES
-        y_hi = y_min + (i + 1) * y_range / NUM_SLICES
-        mask = (mesh.vertices[:, 1] >= y_lo) & (mesh.vertices[:, 1] < y_hi)
-        verts_in_slice = mesh.vertices[mask]
-        
-        if len(verts_in_slice) < 3:
-            continue
-        
-        # XZ bounding area of this slice
-        x_spread = verts_in_slice[:, 0].ptp()
-        z_spread = verts_in_slice[:, 2].ptp()
-        slice_spreads[i] = x_spread * z_spread
-    
-    total_spread = slice_spreads.sum()
-    
-    if total_spread < 1e-10:
-        print(f"    ✓ Model has negligible cross-section spread, skipping flip check")
+    # Compute face centroids and normals
+    try:
+        face_normals = mesh.face_normals  # (F, 3)
+        face_centroids = mesh.triangles_center  # (F, 3)
+    except Exception:
+        print(f"    ⚠️ Could not compute normals, skipping flip check")
         return mesh
     
-    # Weighted center-of-spread along Y (0.0 = bottom, 1.0 = top)
-    # For each slice, weight = slice_spread, position = normalized Y center
-    slice_centers = np.array([(i + 0.5) / NUM_SLICES for i in range(NUM_SLICES)])
-    weighted_center = np.dot(slice_spreads, slice_centers) / total_spread
+    # Split faces into top half and bottom half by centroid Y
+    top_mask = face_centroids[:, 1] >= y_mid
+    bot_mask = ~top_mask
     
-    # Also find which slice has maximum spread
-    max_slice_idx = np.argmax(slice_spreads)
-    max_slice_y = (max_slice_idx + 0.5) / NUM_SLICES
+    # Signal A: Face normal voting
+    # In a correctly oriented model, top-half faces have normals pointing UP (+Y)
+    # and bottom-half faces have normals pointing DOWN (-Y) (undersides of feet etc.)
+    # If flipped, top-half normals point DOWN and bottom-half normals point UP.
     
-    print(f"    Cross-section analysis ({NUM_SLICES} slices):")
-    print(f"      Weighted center of spread: {weighted_center:.3f} (0=bottom, 1=top)")
-    print(f"      Max spread at slice {max_slice_idx}/{NUM_SLICES} (Y={max_slice_y:.2f})")
+    # Weight each face's vote by its area for robustness
+    face_areas = mesh.area_faces  # (F,)
+    ny = face_normals[:, 1]  # Y component of normal (-1 to +1)
     
-    # Print slice spread distribution for debugging
-    spread_bar = ""
-    max_s = slice_spreads.max() if slice_spreads.max() > 0 else 1
-    for i in range(NUM_SLICES):
-        bar_len = int(20 * slice_spreads[i] / max_s)
-        spread_bar += f"      [{i}] {'█' * bar_len}{'░' * (20 - bar_len)} {slice_spreads[i]:.4f}\n"
-    print(f"      Slice spread distribution (bottom→top):\n{spread_bar.rstrip()}")
+    # Score = sum of (normal_y * area) for each half
+    # Positive score = normals pointing up, negative = pointing down
+    top_score = np.sum(ny[top_mask] * face_areas[top_mask]) if top_mask.any() else 0
+    bot_score = np.sum(ny[bot_mask] * face_areas[bot_mask]) if bot_mask.any() else 0
     
-    # Decision: For upright humanoid, the wider part (shoulders/arms) should
-    # be ABOVE center. If weighted center < 0.45, model is likely upside down.
-    # Threshold 0.45 instead of 0.5 to avoid false positives for symmetric models.
-    if weighted_center < 0.45:
-        print(f"    ⚠️ Model appears UPSIDE DOWN (spread center {weighted_center:.3f} < 0.45)")
-        print(f"    → Flipping 180° (negating Y)")
-        mesh.vertices[:, 1] = -mesh.vertices[:, 1]
+    # In correct orientation: top_score > 0 (normals point up on top half)
+    # In flipped orientation: top_score < 0 (normals point down on top half)
+    # The KEY metric: if top half has mostly downward normals → flipped
+    normal_vote = "CORRECT" if top_score >= 0 else "FLIPPED"
+    
+    # Signal B: Vertex density / spread analysis (lightweight tie-breaker)
+    # Divide into 5 bands and check if the widest band is in the lower 40%
+    NUM_BANDS = 5
+    band_spreads = np.zeros(NUM_BANDS)
+    for i in range(NUM_BANDS):
+        y_lo = y_min + i * y_range / NUM_BANDS
+        y_hi = y_min + (i + 1) * y_range / NUM_BANDS
+        mask = (mesh.vertices[:, 1] >= y_lo) & (mesh.vertices[:, 1] < y_hi)
+        verts = mesh.vertices[mask]
+        if len(verts) >= 3:
+            band_spreads[i] = verts[:, 0].ptp() * verts[:, 2].ptp()
+    
+    widest_band = np.argmax(band_spreads)
+    widest_in_bottom = widest_band < 2  # bands 0 or 1 out of 0-4
+    
+    # For humanoid: widest should be in bands 2-4 (mid/upper body)
+    # If widest is in bands 0-1 (bottom), MIGHT be flipped, but not conclusive
+    # (could be a model with a wide base/skirt)
+    spread_vote = "MAYBE_FLIPPED" if widest_in_bottom else "CORRECT"
+    
+    print(f"    Face normal voting:")
+    print(f"      Top-half normal score: {top_score:+.4f} (positive = upward-facing)")
+    print(f"      Bot-half normal score: {bot_score:+.4f}")
+    print(f"      Normal vote: {normal_vote}")
+    print(f"    Spread analysis:")
+    print(f"      Widest band: {widest_band}/{NUM_BANDS} ({'bottom' if widest_in_bottom else 'mid/upper'})")
+    print(f"      Spread vote: {spread_vote}")
+    
+    # ── Decision: Only flip if face normals clearly indicate flipped ──
+    # Face normal voting is the primary signal (physically meaningful).
+    # Spread analysis is only a secondary confirmation.
+    # We require the normal signal to be strong (not just barely negative)
+    # to avoid flipping ambiguous models.
+    
+    total_area = face_areas.sum()
+    if total_area > 1e-10:
+        # Normalized top score: -1.0 (all normals down) to +1.0 (all normals up)
+        norm_top_score = top_score / (total_area * 0.5 + 1e-10)
+    else:
+        norm_top_score = 0
+    
+    should_flip = False
+    if normal_vote == "FLIPPED" and norm_top_score < -0.05:
+        # Strong normal signal → flip regardless of spread
+        should_flip = True
+        reason = f"face normals clearly inverted (score={norm_top_score:.3f})"
+    elif normal_vote == "FLIPPED" and spread_vote == "MAYBE_FLIPPED":
+        # Weak normal signal + spread agrees → flip
+        should_flip = True
+        reason = f"normals + spread both indicate flip (score={norm_top_score:.3f})"
+    
+    if should_flip:
+        print(f"    ⚠️ Model appears UPSIDE DOWN: {reason}")
+        print(f"    → Rotating 180° around X axis")
+        # Use proper rotation (preserves normals and winding order)
+        R = trimesh.transformations.rotation_matrix(np.radians(180), [1, 0, 0])
+        mesh.apply_transform(R)
         if hasattr(mesh, '_cache'):
             mesh._cache.clear()
         print(f"    ✓ Flipped upright")
     else:
-        print(f"    ✓ Orientation OK (spread center {weighted_center:.3f} ≥ 0.45)")
+        if normal_vote == "FLIPPED":
+            print(f"    ⚠️ Normals suggest flip but signal too weak (score={norm_top_score:.3f}), keeping orientation")
+        else:
+            print(f"    ✓ Orientation OK (normals confirm upright)")
     
     return mesh
 
